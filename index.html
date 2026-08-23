@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Study Order</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="authScreen" class="auth-screen">
+    <div class="auth-card">
+      <div class="logo"><span>SO</span></div>
+      <div class="eyebrow">STUDY ORDER</div>
+      <h1>Organize seus estudos.</h1>
+      <p class="muted">Matérias, provas, anotações, links e arquivos em um só lugar.</p>
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-auth="login">Entrar</button>
+        <button class="auth-tab" data-auth="signup">Criar conta</button>
+      </div>
+      <form id="authForm">
+        <label>E-mail<input id="email" type="email" required placeholder="voce@email.com"></label>
+        <label>Senha<input id="password" type="password" required minlength="6" placeholder="••••••••"></label>
+        <button class="primary full" id="authSubmit">Entrar</button>
+      </form>
+      <p id="authMsg" class="form-msg"></p>
+    </div>
+  </div>
+
+  <div id="app" class="app hidden">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-mark">SO</div><div><b>Study</b><span>Order</span></div></div>
+      <button id="newSubjectBtn" class="new-subject">＋ Nova matéria</button>
+      <div class="side-label">MINHAS MATÉRIAS</div>
+      <nav id="subjectNav"></nav>
+      <div class="side-bottom">
+        <button id="allNotesBtn" class="side-action">▤ Todas as anotações</button>
+        <button id="logoutBtn" class="side-action">↪ Sair</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button id="mobileBtn" class="mobile-btn">☰</button>
+        <div class="breadcrumb" id="breadcrumb">Visão geral</div>
+        <div class="top-actions">
+          <button id="themeBtn" class="icon-btn">◐</button>
+          <span id="userEmail" class="user-email"></span>
+        </div>
+      </header>
+
+      <section class="content">
+        <div id="dashboard" class="view">
+          <div class="hero">
+            <div>
+              <span class="eyebrow">SEU ESPAÇO DE ESTUDOS</span>
+              <h1>Study Order</h1>
+              <p>Tenha controle do que estudar, do que entregar e do que já foi concluído.</p>
+            </div>
+            <button class="primary" id="quickNoteBtn">＋ Nova anotação</button>
+          </div>
+          <div class="stats" id="stats"></div>
+          <div class="two-col">
+            <div class="panel">
+              <div class="panel-head"><h2>Próximas provas e tarefas</h2><button id="allTasksBtn">Ver todas</button></div>
+              <div id="upcoming"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><h2>Matérias</h2><button id="addSubject2">＋ Adicionar</button></div>
+              <div id="subjectCards" class="subject-cards"></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="subjectView" class="view hidden">
+          <div class="page-title">
+            <div><span class="eyebrow">MATÉRIA</span><h1 id="subjectTitle">Matemática</h1></div>
+            <div class="page-actions"><button id="deleteSubjectBtn" class="danger">Excluir matéria</button><button id="newTaskBtn" class="primary">＋ Prova / tarefa</button></div>
+          </div>
+          <div class="subject-grid">
+            <div class="panel notes-panel"><div class="panel-head"><h2>Anotações e resumos</h2><button id="saveNoteBtn">Salvar</button></div><textarea id="notes" placeholder="Escreva suas anotações, fórmulas, resumos e lembretes..."></textarea></div>
+            <div class="panel"><div class="panel-head"><h2>Provas e tarefas</h2><button id="newTaskBtn2">＋</button></div><div id="tasks"></div></div>
+          </div>
+          <div class="two-col lower">
+            <div class="panel"><div class="panel-head"><h2>Links e vídeos</h2><button id="newLinkBtn">＋ Adicionar</button></div><div id="links"></div></div>
+            <div class="panel"><div class="panel-head"><h2>Arquivos e mídias</h2><label class="upload-btn">＋ Upload<input id="fileInput" type="file" hidden></label></div><div id="files"></div></div>
+          </div>
+        </div>
+
+        <div id="allNotesView" class="view hidden">
+          <div class="page-title"><div><span class="eyebrow">ANOTAÇÕES</span><h1>Todas as anotações</h1></div></div>
+          <div id="allNotes"></div>
+        </div>
+
+        <div id="allTasksView" class="view hidden">
+          <div class="page-title"><div><span class="eyebrow">AGENDA</span><h1>Provas e tarefas</h1></div></div>
+          <div id="allTasks"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="modal" class="modal-bg hidden"><div class="modal"><button class="close" id="closeModal">×</button><div id="modalBody"></div></div></div>
+  <div id="toast" class="toast"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
