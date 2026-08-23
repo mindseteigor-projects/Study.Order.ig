@@ -9,6 +9,6 @@
 // Exemplo: https://abcdefghijk.supabase.co
 // ============================================================
 
-window.SUPABASE_URL = "https://SEU-PROJETO.supabase.co";
+window.SUPABASE_URL = "https://efnajcayxuxubpdljsqw.supabase.co";
 
-window.SUPABASE_ANON_KEY = "COLE_SUA_ANON_KEY_AQUI";
+window.SUPABASE_ANON_KEY = "sb_publishable_5_veDMZ8ni1WghmwSujh7Q_i8wwFEwK";
