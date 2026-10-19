@@ -3,21 +3,30 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Study Order</title>
+  <title>Study Order — Rede Social de Estudos</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Tela de Autenticação / Registo -->
   <div id="authScreen" class="auth-screen">
     <div class="auth-card">
       <div class="logo"><span>SO</span></div>
       <div class="eyebrow">STUDY ORDER</div>
-      <h1>Organize seus estudos.</h1>
-      <p class="muted">Matérias, provas, anotações, links e arquivos em um só lugar.</p>
+      <h1>Conecte-se e estude em rede.</h1>
+      <p class="muted">Estudos, feed, grupos, IA e metas em um só lugar.</p>
+      
       <div class="auth-tabs">
         <button class="auth-tab active" data-auth="login">Entrar</button>
         <button class="auth-tab" data-auth="signup">Criar conta</button>
       </div>
+
       <form id="authForm">
+        <!-- Campo de username exclusivo para o cadastro -->
+        <div id="usernameFieldContainer" class="hidden">
+          <label>Nome de utilizador (Username)
+            <input id="usernameInput" type="text" placeholder="@seu_usuario (letras, números, _, -, #, *, @)">
+          </label>
+        </div>
         <label>E-mail<input id="email" type="email" required placeholder="voce@email.com"></label>
         <label>Senha<input id="password" type="password" required minlength="6" placeholder="••••••••"></label>
         <button class="primary full" id="authSubmit">Entrar</button>
@@ -26,14 +35,23 @@
     </div>
   </div>
 
+  <!-- Aplicação Principal -->
   <div id="app" class="app hidden">
     <aside class="sidebar">
       <div class="brand"><div class="brand-mark">SO</div><div><b>Study</b><span>Order</span></div></div>
-      <button id="newSubjectBtn" class="new-subject">＋ Nova matéria</button>
+      
+      <div class="side-label">NAVEGAÇÃO</div>
+      <button class="side-action nav-link active" data-target="feedView">💬 Feed & Posts</button>
+      <button class="side-action nav-link" data-target="dashboard">📚 Meus Estudos</button>
+      <button class="side-action nav-link" data-target="groupsView">👥 Grupos & Comunidades</button>
+      <button class="side-action nav-link" data-target="proView">⭐ Plano PRO (R$ 19,90)</button>
+      
       <div class="side-label">MINHAS MATÉRIAS</div>
+      <button id="newSubjectBtn" class="new-subject">＋ Nova matéria</button>
       <nav id="subjectNav"></nav>
+
       <div class="side-bottom">
-        <button id="allNotesBtn" class="side-action">▤ Todas as anotações</button>
+        <button id="adminPanelBtn" class="side-action hidden" style="color: var(--accent);">🛠️ Painel Admin</button>
         <button id="logoutBtn" class="side-action">↪ Sair</button>
       </div>
     </aside>
@@ -41,7 +59,7 @@
     <main class="main">
       <header class="topbar">
         <button id="mobileBtn" class="mobile-btn">☰</button>
-        <div class="breadcrumb" id="breadcrumb">Visão geral</div>
+        <div class="breadcrumb" id="breadcrumb">Feed</div>
         <div class="top-actions">
           <button id="themeBtn" class="icon-btn">◐</button>
           <span id="userEmail" class="user-email"></span>
@@ -49,7 +67,21 @@
       </header>
 
       <section class="content">
-        <div id="dashboard" class="view">
+        <!-- 1. FEED DE POSTS (Estilo X) -->
+        <div id="feedView" class="view">
+          <div class="panel" style="margin-bottom: 20px;">
+            <h2>O que você está estudando hoje?</h2>
+            <textarea id="postContentInput" placeholder="Compartilhe uma dica, dúvida ou progresso..." style="width:100%; min-height:80px; background:#101017; color:white; border:1px solid #353542; border-radius:8px; padding:11px; margin-top:8px;"></textarea>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+              <input type="text" id="postMediaInput" placeholder="URL opcional de imagem/vídeo" style="flex:1; margin-right:10px; background:#101017; color:white; border:1px solid #353542; border-radius:8px; padding:8px;">
+              <button id="createPostBtn" class="primary">Publicar</button>
+            </div>
+          </div>
+          <div id="postsList"></div>
+        </div>
+
+        <!-- 2. DASHBOARD DE ESTUDOS (Antigo painel) -->
+        <div id="dashboard" class="view hidden">
           <div class="hero">
             <div>
               <span class="eyebrow">SEU ESPAÇO DE ESTUDOS</span>
@@ -71,6 +103,28 @@
           </div>
         </div>
 
+        <!-- 3. GRUPOS E COMUNIDADES (Estilo Telegram) -->
+        <div id="groupsView" class="view hidden">
+          <div class="page-title">
+            <div><span class="eyebrow">COMUNIDADES</span><h1>Grupos de Estudo</h1></div>
+            <button id="createGroupBtn" class="primary">＋ Criar Grupo</button>
+          </div>
+          <div id="groupsList"></div>
+        </div>
+
+        <!-- 4. PLANO PRO -->
+        <div id="proView" class="view hidden">
+          <div class="hero" style="background: linear-gradient(135deg, #2b2300, #15151c); border-color: var(--accent);">
+            <div>
+              <span class="eyebrow" style="color: var(--accent);">ASSINATURA PREMIUM</span>
+              <h1>Study Order PRO</h1>
+              <p>Desbloqueie Assistente de IA, cronograma adaptativo por dificuldade, sem anúncios, modo de sobreposição para foco e grupos privados.</p>
+            </div>
+            <button class="primary" id="subscribeProBtn">Assinar por R$ 19,90/mês</button>
+          </div>
+        </div>
+
+        <!-- OUTRAS VIEWS JÁ EXISTENTES -->
         <div id="subjectView" class="view hidden">
           <div class="page-title">
             <div><span class="eyebrow">MATÉRIA</span><h1 id="subjectTitle">Matemática</h1></div>
