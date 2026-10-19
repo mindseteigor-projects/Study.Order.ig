@@ -71,7 +71,7 @@ async function loadProfile() {
   }
 }
 
-// Submeter Formutário de Autenticação
+// Submeter Formulário de Autenticação
 authForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   authMsg.textContent = 'A processar...';
@@ -81,9 +81,11 @@ authForm.addEventListener('submit', async (e) => {
 
   if (authMode === 'signup') {
     const username = usernameInput.value.trim();
-    const usernameRegex = /^[a-zA-Z0-9_\-#*@]+$/;
+    
+    // Validação atualizada: aceita letras, números, _, -, #, *, @ e .
+    const usernameRegex = /^[a-zA-Z0-9_\-#*@\.]+$/;
     if (!usernameRegex.test(username)) {
-      authMsg.textContent = 'Nome de utilizador inválido. Use apenas letras, números, _, -, #, *, @.';
+      authMsg.textContent = 'Nome de utilizador inválido. Use apenas letras, números, _, -, #, *, @ e .';
       return;
     }
 
