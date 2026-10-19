@@ -23,7 +23,7 @@
       <form id="authForm">
         <div id="usernameFieldContainer" class="hidden">
           <label>Nome de utilizador (Username)
-            <input id="usernameInput" type="text" placeholder="@seu_usuario (letras, números, _, -, #, *, @)">
+            <input id="usernameInput" type="text" placeholder="@seu_usuario (letras, números, _, -, #, *, @, .)">
           </label>
         </div>
         <label>E-mail<input id="email" type="email" required placeholder="voce@email.com"></label>
@@ -155,6 +155,7 @@
   <div id="modal" class="modal-bg hidden"><div class="modal"><button class="close" id="closeModal">×</button><div id="modalBody"></div></div></div>
   <div id="toast" class="toast"></div>
 
+  <!-- Biblioteca oficial do Supabase v2 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
   <script src="app.js"></script>
