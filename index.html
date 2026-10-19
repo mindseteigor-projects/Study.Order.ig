@@ -21,7 +21,6 @@
       </div>
 
       <form id="authForm">
-        <!-- Campo de username exclusivo para o cadastro -->
         <div id="usernameFieldContainer" class="hidden">
           <label>Nome de utilizador (Username)
             <input id="usernameInput" type="text" placeholder="@seu_usuario (letras, números, _, -, #, *, @)">
@@ -67,20 +66,20 @@
       </header>
 
       <section class="content">
-        <!-- 1. FEED DE POSTS (Estilo X) -->
+        <!-- 1. FEED DE POSTS -->
         <div id="feedView" class="view">
           <div class="panel" style="margin-bottom: 20px;">
             <h2>O que você está estudando hoje?</h2>
-            <textarea id="postContentInput" placeholder="Compartilhe uma dica, dúvida ou progresso..." style="width:100%; min-height:80px; background:#101017; color:white; border:1px solid #353542; border-radius:8px; padding:11px; margin-top:8px;"></textarea>
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
-              <input type="text" id="postMediaInput" placeholder="URL opcional de imagem/vídeo" style="flex:1; margin-right:10px; background:#101017; color:white; border:1px solid #353542; border-radius:8px; padding:8px;">
+            <textarea id="postContentInput" placeholder="Compartilhe uma dica, dúvida ou progresso..." style="width:100%; min-height:80px; background:#101017; color:white; border:1px solid #353542; border-radius:8px; padding:11px; margin-top:8px; outline:none;"></textarea>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; gap:10px;">
+              <input type="text" id="postMediaInput" placeholder="URL opcional de imagem/vídeo" style="flex:1; background:#101017; color:white; border:1px solid #353542; border-radius:8px; padding:8px; outline:none;">
               <button id="createPostBtn" class="primary">Publicar</button>
             </div>
           </div>
           <div id="postsList"></div>
         </div>
 
-        <!-- 2. DASHBOARD DE ESTUDOS (Antigo painel) -->
+        <!-- 2. DASHBOARD DE ESTUDOS -->
         <div id="dashboard" class="view hidden">
           <div class="hero">
             <div>
@@ -103,7 +102,7 @@
           </div>
         </div>
 
-        <!-- 3. GRUPOS E COMUNIDADES (Estilo Telegram) -->
+        <!-- 3. GRUPOS E COMUNIDADES -->
         <div id="groupsView" class="view hidden">
           <div class="page-title">
             <div><span class="eyebrow">COMUNIDADES</span><h1>Grupos de Estudo</h1></div>
@@ -124,7 +123,7 @@
           </div>
         </div>
 
-        <!-- OUTRAS VIEWS JÁ EXISTENTES -->
+        <!-- OUTRAS VIEWS DA APLICAÇÃO -->
         <div id="subjectView" class="view hidden">
           <div class="page-title">
             <div><span class="eyebrow">MATÉRIA</span><h1 id="subjectTitle">Matemática</h1></div>
