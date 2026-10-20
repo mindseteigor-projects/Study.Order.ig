@@ -14,6 +14,11 @@ const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_
   }
 });
 
+// Variáveis Globais de Estado
+let authMode = 'login'; // 'login' ou 'signup' (Corrigido o ReferenceError)
+let currentUser = null;
+let currentProfile = null;
+
 // Elementos de Autenticação
 const authScreen = document.getElementById('authScreen');
 const appScreen = document.getElementById('app');
@@ -50,16 +55,17 @@ async function checkUser() {
   if (session) {
     currentUser = session.user;
     await loadProfile();
-    authScreen.classList.add('hidden');
-    appScreen.classList.remove('hidden');
+    if (authScreen) authScreen.classList.add('hidden');
+    if (appScreen) appScreen.classList.remove('hidden');
     initApp();
   } else {
-    authScreen.classList.remove('hidden');
-    appScreen.classList.add('hidden');
+    if (authScreen) authScreen.classList.remove('hidden');
+    if (appScreen) appScreen.classList.add('hidden');
   }
 }
 
 async function loadProfile() {
+  if (!currentUser) return;
   const { data, error } = await supabaseClient
     .from('profiles')
     .select('*')
@@ -68,15 +74,18 @@ async function loadProfile() {
   
   if (data) {
     currentProfile = data;
-    document.getElementById('userEmail').textContent = `@${data.username}`;
-    if (data.is_admin) {
-      document.getElementById('adminPanelBtn').classList.remove('hidden');
+    const userEmailEl = document.getElementById('userEmail');
+    if (userEmailEl) userEmailEl.textContent = `@${data.username}`;
+    
+    const adminBtn = document.getElementById('adminPanelBtn');
+    if (data.is_admin && adminBtn) {
+      adminBtn.classList.remove('hidden');
     }
   }
 }
 
 // Submeter Formulário de Autenticação
-authForm.addEventListener('submit', async (e) => {
+authForm?.addEventListener('submit', async (e) => {
   e.preventDefault();
   authMsg.textContent = 'A processar...';
   
@@ -86,27 +95,32 @@ authForm.addEventListener('submit', async (e) => {
   if (authMode === 'signup') {
     const username = usernameInput.value.trim();
     
-    // Validação atualizada: aceita letras, números, _, -, #, *, @ e .
+    // Validação de username: letras, números, _, -, #, *, @ e .
     const usernameRegex = /^[a-zA-Z0-9_\-#*@\.]+$/;
     if (!usernameRegex.test(username)) {
       authMsg.textContent = 'Nome de utilizador inválido. Use apenas letras, números, _, -, #, *, @ e .';
       return;
     }
 
-    const { data, error } = await supabaseClient.auth.signUp({ email, password });
+    const { data, error } = await supabaseClient.auth.signUp({ 
+      email, 
+      password,
+      options: {
+        data: { username: username }
+      }
+    });
+
     if (error) {
       authMsg.textContent = error.message;
       return;
     }
 
     if (data.user) {
-      const { error: profileError } = await supabaseClient.from('profiles').insert([
-        { id: data.user.id, username: username, full_name: username }
+      // Como configurámos a trigger no SQL, o perfil é criado automaticamente, 
+      // mas fazemos o insert defensivo caso a trigger demore um milissegundo.
+      await supabaseClient.from('profiles').upsert([
+        { id: data.user.id, username: username, full_name: username, updated_at: new Date() }
       ]);
-      if (profileError) {
-        authMsg.textContent = 'Erro ao criar perfil: ' + profileError.message;
-        return;
-      }
     }
     authMsg.textContent = 'Conta criada com sucesso!';
     checkUser();
@@ -129,12 +143,14 @@ document.querySelectorAll('.nav-link').forEach(btn => {
     btn.classList.add('active');
     const targetView = document.getElementById(btn.dataset.target);
     if (targetView) targetView.classList.remove('hidden');
-    document.getElementById('breadcrumb').textContent = btn.textContent.trim();
+    
+    const breadcrumb = document.getElementById('breadcrumb');
+    if (breadcrumb) breadcrumb.textContent = btn.textContent.trim();
   });
 });
 
 // Logout
-document.getElementById('logoutBtn').addEventListener('click', async () => {
+document.getElementById('logoutBtn')?.addEventListener('click', async () => {
   await supabaseClient.auth.signOut();
   location.reload();
 });
@@ -186,10 +202,17 @@ async function loadPosts() {
 document.getElementById('createPostBtn')?.addEventListener('click', async () => {
   const contentInput = document.getElementById('postContentInput');
   const mediaInput = document.getElementById('postMediaInput');
+  
+  if (!contentInput) return;
+  
   const content = contentInput.value.trim();
-  const media_url = mediaInput.value.trim();
+  const media_url = mediaInput ? mediaInput.value.trim() : '';
 
   if (!content) return;
+  if (!currentUser) {
+    alert('Sessão expirada. Por favor, faça login novamente.');
+    return;
+  }
 
   const { error } = await supabaseClient.from('posts').insert([
     { user_id: currentUser.id, content, media_url: media_url || null }
@@ -199,7 +222,7 @@ document.getElementById('createPostBtn')?.addEventListener('click', async () => 
     alert('Erro ao publicar: ' + error.message);
   } else {
     contentInput.value = '';
-    mediaInput.value = '';
+    if (mediaInput) mediaInput.value = '';
     loadPosts();
   }
 });
@@ -251,6 +274,8 @@ document.getElementById('createGroupBtn')?.addEventListener('click', async () =>
   if (!name) return;
   const description = prompt('Descrição breve do grupo:') || '';
 
+  if (!currentUser) return;
+
   const { error } = await supabaseClient.from('study_groups').insert([
     { name, description, created_by: currentUser.id, is_private: false }
   ]);
@@ -264,6 +289,7 @@ document.getElementById('createGroupBtn')?.addEventListener('click', async () =>
 
 // Função Utilitária Anti-XSS
 function escapeHtml(text) {
+  if (!text) return '';
   const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
   return text.replace(/[&<>"']/g, m => map[m]);
 }
