@@ -12,6 +12,7 @@ const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_
 let currentUser = null;
 let currentProfile = null;
 let currentFilterTag = null;
+let authMode = 'login'; // 'login' ou 'signup'
 
 const MOTIVATIONAL_QUOTES = [
   "O sucesso é a soma de pequenos esforços repetidos dia após dia.",
@@ -20,17 +21,105 @@ const MOTIVATIONAL_QUOTES = [
   "Acredite no seu processo. Cada hora de estudo conta!"
 ];
 
+// ------------------------------------------------------------
+// 1. GERENCIAMENTO DE AUTENTICAÇÃO E SESSÃO (CORRIGIDO)
+// ------------------------------------------------------------
+
+// Elementos de Login no DOM inicial
+const authForm = document.getElementById('authForm');
+const emailInput = document.getElementById('email');
+const passwordInput = document.getElementById('password');
+const usernameInput = document.getElementById('usernameInput');
+const authMsg = document.getElementById('authMsg');
+const authTabs = document.querySelectorAll('.auth-tab');
+const usernameFieldContainer = document.getElementById('usernameFieldContainer');
+const authSubmit = document.getElementById('authSubmit');
+
+// Alternar entre Login e Cadastro
+if (authTabs && authTabs.length > 0) {
+  authTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      authTabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      authMode = tab.dataset.auth || 'login';
+      if (authMode === 'signup') {
+        if (usernameFieldContainer) usernameFieldContainer.classList.remove('hidden');
+        if (usernameInput) usernameInput.required = true;
+        if (authSubmit) authSubmit.textContent = 'Criar conta';
+      } else {
+        if (usernameFieldContainer) usernameFieldContainer.classList.add('hidden');
+        if (usernameInput) usernameInput.required = false;
+        if (authSubmit) authSubmit.textContent = 'Entrar';
+      }
+    });
+  });
+}
+
+// Handler do Formulário de Login / Registo
+if (authForm) {
+  authForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (authMsg) authMsg.textContent = 'A processar...';
+
+    const email = emailInput ? emailInput.value.trim() : '';
+    const password = passwordInput ? passwordInput.value.trim() : '';
+
+    if (!email || !password) {
+      if (authMsg) authMsg.textContent = 'Por favor, preencha o e-mail e a palavra-passe.';
+      return;
+    }
+
+    if (authMode === 'signup') {
+      const username = usernameInput ? usernameInput.value.trim() : '';
+      if (!username) {
+        if (authMsg) authMsg.textContent = 'Por favor, informe o nome de utilizador.';
+        return;
+      }
+
+      const { data, error } = await supabaseClient.auth.signUp({
+        email,
+        password,
+        options: { data: { username } }
+      });
+
+      if (error) {
+        if (authMsg) authMsg.textContent = 'Erro ao registar: ' + error.message;
+        return;
+      }
+
+      if (data?.user) {
+        await supabaseClient.from('profiles').upsert([
+          { id: data.user.id, username, updated_at: new Date() }
+        ]);
+      }
+      if (authMsg) authMsg.textContent = 'Conta criada com sucesso!';
+      checkUser();
+    } else {
+      const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+      if (error) {
+        if (authMsg) authMsg.textContent = 'Erro ao entrar: ' + error.message;
+        return;
+      }
+      checkUser();
+    }
+  });
+}
+
 async function checkUser() {
   const { data: { session } } = await supabaseClient.auth.getSession();
+  const appScreen = document.getElementById('app');
+  const authScreen = document.getElementById('authScreen');
+
   if (session) {
     currentUser = session.user;
     await loadProfile();
-    const appScreen = document.getElementById('app');
-    const authScreen = document.getElementById('authScreen');
     if (authScreen) authScreen.classList.add('hidden');
     if (appScreen) appScreen.classList.remove('hidden');
     renderLayout();
     checkAdPopup();
+  } else {
+    if (authScreen) authScreen.classList.remove('hidden');
+    if (appScreen) appScreen.classList.add('hidden');
   }
 }
 
@@ -66,6 +155,10 @@ function checkAdPopup() {
     }
   }, 1000);
 }
+
+// ------------------------------------------------------------
+// 2. INTERFACE E NAVEGAÇÃO PRINCIPAL (INSTAGRAM + STUDYHUB)
+// ------------------------------------------------------------
 
 function renderLayout() {
   const appContainer = document.getElementById('app');
@@ -126,7 +219,7 @@ function renderLayout() {
       <main style="flex: 1; height: 100vh; overflow-y: auto; background-color: #000; display: flex; justify-content: center; padding: 20px 0;">
         <div style="width: 100%; max-width: 550px;">
           
-          <!-- VIEW 1: FEED (INSTAGRAM REFINADO) -->
+          <!-- VIEW 1: FEED -->
           <div id="feedView" class="view-section" style="display: block;">
             <div id="postsList"></div>
           </div>
@@ -135,7 +228,6 @@ function renderLayout() {
           <div id="tasksView" class="view-section" style="display: none; padding: 0 16px;">
             <h2 style="font-size: 20px; font-weight: bold; margin-bottom: 16px;">Organizador de Tarefas e Eventos</h2>
             
-            <!-- Form de Criação de Tarefa -->
             <div style="background: #121212; border: 1px solid #262626; border-radius: 12px; padding: 16px; margin-bottom: 20px;">
               <input type="text" id="taskTitle" placeholder="Nome da tarefa/evento..." style="width: 100%; background: #000; border: 1px solid #262626; padding: 10px; color: #fff; border-radius: 6px; margin-bottom: 10px; outline: none;">
               <div style="display: flex; gap: 8px; margin-bottom: 10px;">
@@ -164,11 +256,10 @@ function renderLayout() {
               ${currentProfile?.is_pro ? `<button onclick="loadTasks('smart')" style="background: #f59e0b; color: #000; border: none; padding: 6px 12px; border-radius: 16px; font-size: 12px; font-weight: bold; cursor: pointer;">SmartPlan PRO</button>` : ''}
             </div>
 
-            <!-- Lista de Tarefas -->
             <div id="tasksList"></div>
           </div>
 
-          <!-- VIEW 3: ABA DE EVOLUÇÃO -->
+          <!-- VIEW 3: EVOLUÇÃO -->
           <div id="evolutionView" class="view-section" style="display: none; padding: 0 16px;">
             <h2 style="font-size: 20px; font-weight: bold; margin-bottom: 16px;">Evolução do Estudante</h2>
             <div style="background: #121212; border: 1px solid #262626; border-radius: 12px; padding: 20px; margin-bottom: 16px;">
@@ -180,12 +271,12 @@ function renderLayout() {
                 <span>Tarefas Não Executadas:</span> <b id="statFailed">0</b>
               </div>
               <div style="display: flex; justify-content: space-between; font-size: 14px;">
-                <span>Taxa de Evolução Semanal/Mensal:</span> <b id="statRate" style="color: #22c55e;">0%</b>
+                <span>Taxa de Evolução:</span> <b id="statRate" style="color: #22c55e;">0%</b>
               </div>
             </div>
           </div>
 
-          <!-- VIEW 4: PAINEL ADMINISTRATIVO (DESENVOLVEDOR) -->
+          <!-- VIEW 4: PAINEL ADM -->
           <div id="adminView" class="view-section" style="display: none; padding: 0 16px;">
             <h2 style="font-size: 20px; font-weight: bold; margin-bottom: 16px; color: #f59e0b;">Painel do Administrador</h2>
             <div style="background: #121212; border: 1px solid #262626; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
@@ -195,7 +286,7 @@ function renderLayout() {
             </div>
           </div>
 
-          <!-- VIEW 5: IA E GRUPOS -->
+          <!-- VIEW 5: COMUNIDADES & IA -->
           <div id="groupsView" class="view-section" style="display: none; padding: 0 16px;">
             <h2 style="font-size: 20px; font-weight: bold;">Comunidades</h2>
             <div id="groupsList"></div>
@@ -211,7 +302,7 @@ function renderLayout() {
         </div>
       </main>
 
-      <!-- MODAL DE POST COM UPLOAD LOCAL DO DISPOSITIVO -->
+      <!-- MODAL DE POST COM UPLOAD DO DISPOSITIVO -->
       <div id="createPostModal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.95); z-index: 1000; flex-direction: column; justify-content: space-between; padding: 20px; box-sizing: border-box;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <span id="closePostModalBtn" style="font-size: 28px; cursor: pointer; color: #fff;">✕</span>
@@ -248,10 +339,10 @@ function initAppLogic() {
   });
 
   const modal = document.getElementById('createPostModal');
-  document.getElementById('openCreateModalBtn').addEventListener('click', () => { modal.style.display = 'flex'; });
-  document.getElementById('closePostModalBtn').addEventListener('click', () => { modal.style.display = 'none'; });
+  document.getElementById('openCreateModalBtn')?.addEventListener('click', () => { modal.style.display = 'flex'; });
+  document.getElementById('closePostModalBtn')?.addEventListener('click', () => { modal.style.display = 'none'; });
 
-  document.getElementById('logoutBtn').addEventListener('click', async () => {
+  document.getElementById('logoutBtn')?.addEventListener('click', async () => {
     await supabaseClient.auth.signOut();
     location.reload();
   });
@@ -263,11 +354,11 @@ function initAppLogic() {
   loadEvolutionStats();
   if (currentProfile?.is_admin) loadAdminStats();
 
-  // Enviar Publicação com Arquivo do Dispositivo
-  document.getElementById('submitPostBtn').addEventListener('click', async () => {
+  // Enviar Publicação
+  document.getElementById('submitPostBtn')?.addEventListener('click', async () => {
     const content = document.getElementById('postContentInput').value.trim();
     const fileInput = document.getElementById('postFileInput');
-    const file = fileInput.files[0];
+    const file = fileInput ? fileInput.files[0] : null;
 
     if (!content) return;
 
@@ -295,13 +386,16 @@ function initAppLogic() {
     ]);
 
     document.getElementById('postContentInput').value = '';
-    fileInput.value = '';
+    if (fileInput) fileInput.value = '';
     modal.style.display = 'none';
     loadPosts();
   });
 }
 
-// CARREGAR FEED COM COMENTÁRIOS OCULTOS POR PADRÃO
+// ------------------------------------------------------------
+// 3. CARREGAMENTO DO FEED E RECURSOS
+// ------------------------------------------------------------
+
 async function loadPosts() {
   const container = document.getElementById('postsList');
   if (!container) return;
@@ -325,9 +419,9 @@ async function loadPosts() {
     card.innerHTML = `
       <div style="display: flex; align-items: center; padding: 10px 4px; gap: 10px;">
         <div style="width: 32px; height: 32px; border-radius: 50%; background: #0095f6; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 13px;">
-          ${post.profiles?.username.charAt(0).toUpperCase()}
+          ${post.profiles?.username ? post.profiles.username.charAt(0).toUpperCase() : 'U'}
         </div>
-        <span style="font-weight: 600; font-size: 14px;">${post.profiles?.username}</span>
+        <span style="font-weight: 600; font-size: 14px;">${post.profiles?.username || 'utilizador'}</span>
       </div>
 
       ${post.media_url ? (
@@ -343,12 +437,12 @@ async function loadPosts() {
         </div>
 
         <div style="font-weight: 600; font-size: 14px; margin-bottom: 4px;">${likesCount || 0} curtidas</div>
-        <div style="font-size: 14px;"><span style="font-weight: 600;">${post.profiles?.username}</span> ${escapeHtml(post.content)}</div>
+        <div style="font-size: 14px;"><span style="font-weight: 600;">${post.profiles?.username || 'utilizador'}</span> ${escapeHtml(post.content)}</div>
 
-        <!-- Seção de Comentários (Oculta por padrão) -->
+        <!-- Comentários oculta por padrão -->
         <div id="commentsContainer-${post.id}" style="display: none; margin-top: 10px; border-top: 1px solid #1f1f1f; padding-top: 8px;">
           <div style="max-height: 120px; overflow-y: auto; font-size: 13px; margin-bottom: 8px;">
-            ${comments.map(c => `<div style="margin-bottom:4px;"><b>${c.profiles?.username}</b> ${escapeHtml(c.content)}</div>`).join('')}
+            ${comments ? comments.map(c => `<div style="margin-bottom:4px;"><b>${c.profiles?.username \vert{}\vert{} 'utilizador'}</b> ${escapeHtml(c.content)}</div>`).join('') : ''}
           </div>
           <div style="display: flex;">
             <input type="text" id="comment-input-${post.id}" placeholder="Comentar..." style="flex:1; background:transparent; border:none; color:#fff; font-size:12px; outline:none;">
@@ -366,13 +460,12 @@ window.toggleCommentsDisplay = function(postId) {
   if (container) container.style.display = container.style.display === 'none' ? 'block' : 'none';
 }
 
-// LÓGICA DE TAREFAS E JUSTIFICATIVAS
 async function createTask() {
-  const title = document.getElementById('taskTitle').value.trim();
-  const start_date = document.getElementById('taskStartDate').value;
-  const due_date = document.getElementById('taskDueDate').value;
-  const priority = document.getElementById('taskPriority').value;
-  const end_time = document.getElementById('taskEndTime').value;
+  const title = document.getElementById('taskTitle')?.value.trim();
+  const start_date = document.getElementById('taskStartDate')?.value;
+  const due_date = document.getElementById('taskDueDate')?.value;
+  const priority = document.getElementById('taskPriority')?.value;
+  const end_time = document.getElementById('taskEndTime')?.value;
 
   if (!title || !start_date || !due_date || !end_time) {
     alert('Preencha todos os campos da tarefa.');
@@ -398,6 +491,8 @@ async function loadTasks(orderBy) {
 
   const { data: tasks } = await query;
   container.innerHTML = '';
+
+  if (!tasks) return;
 
   tasks.forEach(task => {
     const item = document.createElement('div');
@@ -443,14 +538,19 @@ async function loadEvolutionStats() {
   const total = tasks.length;
   const rate = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-  document.getElementById('statCompleted').textContent = completed;
-  document.getElementById('statFailed').textContent = failed;
-  document.getElementById('statRate').textContent = `${rate}%`;
+  const compEl = document.getElementById('statCompleted');
+  const failEl = document.getElementById('statFailed');
+  const rateEl = document.getElementById('statRate');
+
+  if (compEl) compEl.textContent = completed;
+  if (failEl) failEl.textContent = failed;
+  if (rateEl) rateEl.textContent = `${rate}%`;
 }
 
 async function loadAdminStats() {
   const { count: usersCount } = await supabaseClient.from('profiles').select('*', { count: 'exact', head: true });
-  document.getElementById('admTotalUsers').textContent = usersCount || 0;
+  const admUserEl = document.getElementById('admTotalUsers');
+  if (admUserEl) admUserEl.textContent = usersCount || 0;
 }
 
 window.toggleLike = async function(postId) {
@@ -465,11 +565,11 @@ window.toggleLike = async function(postId) {
 
 window.addComment = async function(postId) {
   const input = document.getElementById(`comment-input-${postId}`);
-  const content = input.value.trim();
+  const content = input ? input.value.trim() : '';
   if (!content) return;
 
   await supabaseClient.from('comments').insert([{ post_id: postId, user_id: currentUser.id, content }]);
-  input.value = '';
+  if (input) input.value = '';
   loadPosts();
 }
 
@@ -478,4 +578,5 @@ function escapeHtml(text) {
   return text.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 }
 
+// Iniciar verificação da sessão
 checkUser();
