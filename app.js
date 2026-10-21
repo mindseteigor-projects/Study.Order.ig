@@ -211,4 +211,68 @@ function renderLayout() {
 
         <div style="display: flex; flex: 1; align-items: center; justify-content: center; margin: 20px 0;">
           <div style="width: 100%; max-width: 400px; background: #000; padding: 20px; border-radius: 16px; border: 1px solid #262626;">
-            <textarea id="postContentInput" placeholder="Escreva
+            <textarea id="postContentInput" placeholder="Escreva a legenda do post..." style="width: 100%; background: transparent; border: none; color: #fff; font-size: 15px; resize: none; outline: none; height: 100px;"></textarea>
+            <input type="file" id="postFileInput" accept="image/*,video/*" style="margin-top: 10px; color: #fff; font-size: 12px; width: 100%;">
+          </div>
+        </div>
+      </div>
+
+    </div>
+  `;
+
+  initAppLogic();
+}
+
+function initAppLogic() {
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    if (btn.id === 'openCreateModalBtn') return;
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.view-section').forEach(v => v.style.display = 'none');
+      const target = document.getElementById(btn.dataset.target);
+      if (target) target.style.display = 'block';
+    });
+  });
+
+  const modal = document.getElementById('createPostModal');
+  document.getElementById('openCreateModalBtn')?.addEventListener('click', () => { modal.style.display = 'flex'; });
+  document.getElementById('closePostModalBtn')?.addEventListener('click', () => { modal.style.display = 'none'; });
+
+  document.getElementById('logoutBtn')?.addEventListener('click', async () => {
+    await supabaseClient.auth.signOut();
+    location.reload();
+  });
+
+  loadPosts();
+}
+
+async function loadPosts() {
+  const container = document.getElementById('postsList');
+  if (!container) return;
+
+  const { data: posts } = await supabaseClient.from('posts').select(`*, profiles:user_id (username)`).order('created_at', { ascending: false });
+  container.innerHTML = '';
+
+  if (!posts || posts.length === 0) {
+    container.innerHTML = '<p style="text-align: center; color: #737373; padding: 40px 0;">Nenhuma publicação ainda.</p>';
+    return;
+  }
+
+  for (let post of posts) {
+    const card = document.createElement('div');
+    card.style.cssText = 'background: #000; border-bottom: 1px solid #262626; margin-bottom: 16px; padding-bottom: 16px;';
+    card.innerHTML = `
+      <div style="padding: 10px 4px; font-weight: 600;">@${post.profiles?.username || 'utilizador'}</div>
+      <div style="padding: 4px;">${escapeHtml(post.content)}</div>
+    `;
+    container.appendChild(card);
+  }
+}
+
+function escapeHtml(text) {
+  if (!text) return '';
+  return text.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+}
+
+// Inicializar verificação
+setupAuthEvents();
+checkUser();
