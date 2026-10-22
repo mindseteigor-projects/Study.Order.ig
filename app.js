@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS COMPLETO (CORREÇÃO DE MATÉRIAS E COMUNIDADES)
+// STUDY ORDER — APP.JS COMPLETO (COM CHAT ESTILO WHATSAPP NOS GRUPOS)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -13,6 +13,7 @@ let currentUser = null;
 let currentProfile = null;
 let activeAuthMode = 'login';
 let selectedSubjectId = null;
+let activeGroupId = null; // Grupo de chat aberto no momento
 
 const MOTIVATIONAL_QUOTES = [
   "O sucesso é a soma de pequenos esforços repetidos dia após dia.",
@@ -145,7 +146,7 @@ async function loadProfile() {
 }
 
 // ------------------------------------------------------------
-// 2. NAVEGAÇÃO ENTRE ABAS DO APP
+// 2. NAVEGAÇÃO ENTRE ABAS
 // ------------------------------------------------------------
 function setupNavigation() {
   document.querySelectorAll('.nav-link').forEach(btn => {
@@ -196,9 +197,9 @@ function initAppFeatures() {
     };
   }
 
-  // Nova Matéria (Botões da barra lateral e do dashboard)
+  // Nova Matéria
   const handleNewSubject = async () => {
-    const name = prompt('Nome da Matéria (ex: Matemática, Física, Biologia):');
+    const name = prompt('Nome da Matéria (ex: Matemática, Física):');
     if (!name) return;
 
     await supabaseClient.from('subjects').insert([{ user_id: currentUser.id, name }]);
@@ -210,14 +211,13 @@ function initAppFeatures() {
   if (newSubjectBtn) newSubjectBtn.onclick = handleNewSubject;
   if (addSubject2) addSubject2.onclick = handleNewSubject;
 
-  // Criar Grupo / Comunidade
+  // Criar Grupo
   const createGroupBtn = document.getElementById('createGroupBtn');
   if (createGroupBtn) {
     createGroupBtn.onclick = async () => {
-      const name = prompt('Nome da Comunidade / Grupo de Estudo:');
+      const name = prompt('Nome do Grupo de Estudo (ex: Foco em Redação):');
       if (!name) return;
 
-      // Cria a tabela de grupos caso não exista ou insere diretamente
       await supabaseClient.from('groups').insert([{ user_id: currentUser.id, name }]);
       loadGroups();
     };
@@ -225,7 +225,7 @@ function initAppFeatures() {
 }
 
 // ------------------------------------------------------------
-// 3. MATÉRIAS E PASTAS DE ESTUDO (FUNCIONAMENTO COMPLETO)
+// 3. MATÉRIAS E PASTAS DE ESTUDO
 // ------------------------------------------------------------
 async function loadSubjects() {
   const subjectNav = document.getElementById('subjectNav');
@@ -243,17 +243,15 @@ async function loadSubjects() {
   }
 
   subjects.forEach(sub => {
-    // Adiciona na barra lateral esquerda ("MINHAS MATÉRIAS")
     const navBtn = document.createElement('button');
     navBtn.className = 'side-action';
     navBtn.textContent = `📓 ${sub.name}`;
     navBtn.onclick = () => openSubjectView(sub);
     subjectNav.appendChild(navBtn);
 
-    // Adiciona nos cards do Dashboard ("Meus Estudos")
     if (subjectCards) {
       const card = document.createElement('div');
-      card.style.cssText = 'background: #121212; border: 1px solid #262626; border-radius: 10px; padding: 14px; cursor: pointer; transition: 0.2s;';
+      card.style.cssText = 'background: #121212; border: 1px solid #262626; border-radius: 10px; padding: 14px; cursor: pointer;';
       card.onclick = () => openSubjectView(sub);
       card.innerHTML = `<b style="color: #fff; font-size: 15px;">${escapeHtml(sub.name)}</b><br><small style="color: #38bdf8;">Ver anotações e tarefas</small>`;
       subjectCards.appendChild(card);
@@ -274,7 +272,6 @@ function openSubjectView(sub) {
 }
 
 async function loadSubjectDetails(subjectId) {
-  // Anotações da Matéria
   const { data: subData } = await supabaseClient.from('subjects').select('notes').eq('id', subjectId).single();
   const notesArea = document.getElementById('notes');
   if (notesArea && subData) notesArea.value = subData.notes || '';
@@ -288,7 +285,6 @@ async function loadSubjectDetails(subjectId) {
     };
   }
 
-  // Excluir Matéria
   const deleteSubjectBtn = document.getElementById('deleteSubjectBtn');
   if (deleteSubjectBtn) {
     deleteSubjectBtn.onclick = async () => {
@@ -302,7 +298,7 @@ async function loadSubjectDetails(subjectId) {
 }
 
 // ------------------------------------------------------------
-// 4. COMUNIDADES E GRUPOS DE ESTUDO
+// 4. GRUPOS E COMUNIDADES (ESTILO WHATSAPP)
 // ------------------------------------------------------------
 async function loadGroups() {
   const groupsList = document.getElementById('groupsList');
@@ -311,26 +307,109 @@ async function loadGroups() {
   const { data: groups, error } = await supabaseClient.from('groups').select('*').order('created_at', { ascending: false });
   
   if (error) {
-    groupsList.innerHTML = '<p style="color: #737373; font-size: 13px;">Para usar os grupos, certifique-se de criar a tabela "groups" no Supabase.</p>';
+    groupsList.innerHTML = '<p style="color: #737373; font-size: 13px;">Crie a tabela "groups" no SQL Editor do Supabase primeiro.</p>';
     return;
   }
 
   groupsList.innerHTML = '';
   if (!groups || groups.length === 0) {
-    groupsList.innerHTML = '<p style="color: #737373; padding: 20px;">Nenhum grupo de estudo ativo no momento. Crie o primeiro acima!</p>';
+    groupsList.innerHTML = '<p style="color: #737373; padding: 20px;">Nenhum grupo criado. Crie o primeiro acima!</p>';
     return;
   }
 
   groups.forEach(group => {
     const card = document.createElement('div');
     card.className = 'panel';
-    card.style.marginBottom = '12px';
+    card.style.cssText = 'margin-bottom: 12px; cursor: pointer; border: 1px solid #262626; transition: 0.2s;';
+    card.onclick = () => openGroupChat(group);
     card.innerHTML = `
-      <h3 style="color: var(--accent); margin-bottom: 4px;">👥 ${escapeHtml(group.name)}</h3>
-      <p style="font-size: 13px; color: #a8a8a8;">Grupo de estudo ativo para troca de materiais e foco em grupo.</p>
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <h3 style="color: var(--accent); margin-bottom: 4px;">👥 ${escapeHtml(group.name)}</h3>
+          <p style="font-size: 13px; color: #a8a8a8; margin: 0;">Clique para abrir o chat e trocar mensagens no grupo.</p>
+        </div>
+        <button class="primary" style="padding: 6px 14px; font-size: 12px;">Entrar no Grupo</button>
+      </div>
     `;
     groupsList.appendChild(card);
   });
+}
+
+function openGroupChat(group) {
+  activeGroupId = group.id;
+  const groupsList = document.getElementById('groupsList');
+  
+  // Transforma a view de grupos num chat ativo estilo WhatsApp
+  groupsList.innerHTML = `
+    <div class="panel" style="display: flex; flex-direction: column; height: 65vh; padding: 0; overflow: hidden; background: #0b0b0f;">
+      <!-- Cabeçalho do Grupo -->
+      <div style="padding: 16px; background: #16161f; border-bottom: 1px solid #262626; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <h3 style="margin: 0; color: var(--accent);">👥 ${escapeHtml(group.name)}</h3>
+          <small style="color: #22c55e;">● Chat ao vivo (Estilo WhatsApp)</small>
+        </div>
+        <button onclick="loadGroups()" style="background: #262626; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer;">← Voltar aos Grupos</button>
+      </div>
+
+      <!-- Mensagens do Chat -->
+      <div id="chatMessages" style="flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
+        <p style="color: #737373; text-align: center;">A carregar mensagens...</p>
+      </div>
+
+      <!-- Barra de Envio de Mensagem -->
+      <div style="padding: 12px 16px; background: #16161f; border-top: 1px solid #262626; display: flex; gap: 10px;">
+        <input type="text" id="chatInput" placeholder="Escreva uma mensagem para o grupo..." style="flex: 1; background: #101017; color: white; border: 1px solid #353542; border-radius: 8px; padding: 10px; outline: none;" onkeydown="if(event.key === 'Enter') sendGroupMessage()">
+        <button onclick="sendGroupMessage()" class="primary" style="padding: 0 20px;">Enviar</button>
+      </div>
+    </div>
+  `;
+
+  loadGroupMessages(group.id);
+}
+
+async function loadGroupMessages(groupId) {
+  const container = document.getElementById('chatMessages');
+  if (!container) return;
+
+  const { data: messages } = await supabaseClient
+    .from('group_messages')
+    .select('*, profiles:user_id (username)')
+    .eq('group_id', groupId)
+    .order('created_at', { ascending: true });
+
+  container.innerHTML = '';
+  if (!messages || messages.length === 0) {
+    container.innerHTML = '<p style="color: #737373; text-align: center; margin: auto;">Nenhuma mensagem neste grupo ainda. Seja o primeiro a enviar!</p>';
+    return;
+  }
+
+  messages.forEach(msg => {
+    const isMe = msg.user_id === currentUser.id;
+    const msgDiv = document.createElement('div');
+    msgDiv.style.cssText = `max-width: 70%; padding: 10px 14px; border-radius: 10px; font-size: 13px; align-self: ${isMe ? 'flex-end' : 'flex-start'}; background: ${isMe ? '#2563eb' : '#1f1f2e'}; color: white; word-break: break-word;`;
+    
+    msgDiv.innerHTML = `
+      <div style="font-size: 11px; font-weight: bold; color: ${isMe ? '#93c5fd' : '#38bdf8'}; margin-bottom: 2px;">@${msg.profiles?.username || 'utilizador'}</div>
+      <div>${escapeHtml(msg.content)}</div>
+    `;
+    container.appendChild(msgDiv);
+  });
+
+  container.scrollTop = container.scrollHeight;
+}
+
+window.sendGroupMessage = async function() {
+  if (!activeGroupId) return;
+  const input = document.getElementById('chatInput');
+  const content = input ? input.value.trim() : '';
+  if (!content) return;
+
+  await supabaseClient.from('group_messages').insert([
+    { group_id: activeGroupId, user_id: currentUser.id, content }
+  ]);
+
+  input.value = '';
+  loadGroupMessages(activeGroupId);
 }
 
 // ------------------------------------------------------------
@@ -390,4 +469,4 @@ async function loadPosts() {
 function escapeHtml(text) {
   if (!text) return '';
   return text.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
-}v
+}
