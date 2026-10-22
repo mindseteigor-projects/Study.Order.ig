@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS COMPLETO (COM REALTIME NOS GRUPOS)
+// STUDY ORDER — APP.JS COMPLETO (CORREÇÃO DE MATÉRIAS, TAREFAS E MÍDIA)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -14,7 +14,7 @@ let currentProfile = null;
 let activeAuthMode = 'login';
 let selectedSubjectId = null;
 let activeGroupId = null;
-let messageSubscription = null; // Subscrição do Realtime
+let messageSubscription = null;
 
 const MOTIVATIONAL_QUOTES = [
   "O sucesso é a soma de pequenos esforços repetidos dia após dia.",
@@ -152,7 +152,6 @@ async function loadProfile() {
 function setupNavigation() {
   document.querySelectorAll('.nav-link').forEach(btn => {
     btn.addEventListener('click', () => {
-      // Se sair da aba de grupos, limpa subscrição do realtime
       if (messageSubscription) {
         supabaseClient.removeChannel(messageSubscription);
         messageSubscription = null;
@@ -210,7 +209,7 @@ function initAppFeatures() {
   }
 
   const handleNewSubject = async () => {
-    const name = prompt('Nome da Matéria (ex: Matemática, Física):');
+    const name = prompt('Nome da Matéria (ex: Matemática, Física, Biologia):');
     if (!name) return;
 
     await supabaseClient.from('subjects').insert([{ user_id: currentUser.id, name }]);
@@ -225,7 +224,7 @@ function initAppFeatures() {
   const createGroupBtn = document.getElementById('createGroupBtn');
   if (createGroupBtn) {
     createGroupBtn.onclick = async () => {
-      const name = prompt('Nome do Grupo de Estudo (ex: Foco em Redação):');
+      const name = prompt('Nome do Grupo de Estudo:');
       if (!name) return;
 
       await supabaseClient.from('groups').insert([{ user_id: currentUser.id, name }]);
@@ -235,7 +234,7 @@ function initAppFeatures() {
 }
 
 // ------------------------------------------------------------
-// 3. MATÉRIAS
+// 3. MATÉRIAS E GERENCIAMENTO DETALHADO
 // ------------------------------------------------------------
 async function loadSubjects() {
   const subjectNav = document.getElementById('subjectNav');
@@ -282,10 +281,12 @@ function openSubjectView(sub) {
 }
 
 async function loadSubjectDetails(subjectId) {
+  // Carregar notas da matéria
   const { data: subData } = await supabaseClient.from('subjects').select('notes').eq('id', subjectId).single();
   const notesArea = document.getElementById('notes');
   if (notesArea && subData) notesArea.value = subData.notes || '';
 
+  // Salvar anotações
   const saveNoteBtn = document.getElementById('saveNoteBtn');
   if (saveNoteBtn) {
     saveNoteBtn.onclick = async () => {
@@ -295,6 +296,7 @@ async function loadSubjectDetails(subjectId) {
     };
   }
 
+  // Excluir matéria
   const deleteSubjectBtn = document.getElementById('deleteSubjectBtn');
   if (deleteSubjectBtn) {
     deleteSubjectBtn.onclick = async () => {
@@ -305,10 +307,99 @@ async function loadSubjectDetails(subjectId) {
       }
     };
   }
+
+  // Criar Prova / Tarefa dentro da Matéria
+  const handleNewTask = async () => {
+    const title = prompt('Nome da prova ou tarefa:');
+    if (!title) return;
+    const due_date = prompt('Data de entrega (AAAA-MM-DD):', new Date().toISOString().split('T')[0]);
+
+    await supabaseClient.from('tasks').insert([
+      { user_id: currentUser.id, title, due_date }
+    ]);
+    loadSubjectDetails(subjectId);
+    loadTasks();
+  };
+
+  const newTaskBtn = document.getElementById('newTaskBtn');
+  const newTaskBtn2 = document.getElementById('newTaskBtn2');
+  if (newTaskBtn) newTaskBtn.onclick = handleNewTask;
+  if (newTaskBtn2) newTaskBtn2.onclick = handleNewTask;
+
+  // Carregar tarefas associadas
+  const tasksContainer = document.getElementById('tasks');
+  if (tasksContainer) {
+    const { data: tasks } = await supabaseClient.from('tasks').select('*').eq('user_id', currentUser.id);
+    tasksContainer.innerHTML = '';
+    if (!tasks || tasks.length === 0) {
+      tasksContainer.innerHTML = '<small style="color: #737373;">Nenhuma tarefa pendente.</small>';
+    } else {
+      tasks.forEach(task => {
+        const div = document.createElement('div');
+        div.style.cssText = 'padding: 8px 0; border-bottom: 1px solid #262626; font-size: 13px; display:flex; justify-content:space-between; align-items:center;';
+        div.innerHTML = `<span>${escapeHtml(task.title)}</span> <small style="color:var(--accent);">${task.due_date || ''}</small>`;
+        tasksContainer.appendChild(div);
+      });
+    }
+  }
+
+  // Adicionar Link ou Vídeo
+  const newLinkBtn = document.getElementById('newLinkBtn');
+  if (newLinkBtn) {
+    newLinkBtn.onclick = async () => {
+      const title = prompt('Título do link ou vídeo:');
+      const url = prompt('URL (link do site ou vídeo):');
+      if (!title || !url) return;
+
+      await supabaseClient.from('subject_contents').insert([
+        { subject_id: subjectId, user_id: currentUser.id, title, type: url.includes('youtube') ? 'video' : 'link', url, content: title }
+      ]);
+      loadSubjectLinksAndFiles(subjectId);
+    };
+  }
+
+  loadSubjectLinksAndFiles(subjectId);
+}
+
+async function loadSubjectLinksAndFiles(subjectId) {
+  const linksContainer = document.getElementById('links');
+  const filesContainer = document.getElementById('files');
+
+  const { data: contents } = await supabaseClient.from('subject_contents').select('*').eq('subject_id', subjectId);
+  
+  if (linksContainer) {
+    linksContainer.innerHTML = '';
+    const links = contents?.filter(c => c.type === 'link' || c.type === 'video') || [];
+    if (links.length === 0) {
+      linksContainer.innerHTML = '<small style="color: #737373;">Nenhum link ou vídeo adicionado.</small>';
+    } else {
+      links.forEach(l => {
+        const div = document.createElement('div');
+        div.style.cssText = 'padding: 6px 0; font-size: 13px; border-bottom: 1px solid #262626;';
+        div.innerHTML = `<a href="${l.url}" target="_blank" style="color: var(--accent); text-decoration: none;">🔗 ${escapeHtml(l.title)}</a>`;
+        linksContainer.appendChild(div);
+      });
+    }
+  }
+
+  if (filesContainer) {
+    filesContainer.innerHTML = '';
+    const files = contents?.filter(c => c.type === 'file') || [];
+    if (files.length === 0) {
+      filesContainer.innerHTML = '<small style="color: #737373;">Nenhum arquivo enviado.</small>';
+    } else {
+      files.forEach(f => {
+        const div = document.createElement('div');
+        div.style.cssText = 'padding: 6px 0; font-size: 13px; border-bottom: 1px solid #262626;';
+        div.innerHTML = `<a href="${f.url}" target="_blank" style="color: #38bdf8; text-decoration: none;">📄 ${escapeHtml(f.title)}</a>`;
+        filesContainer.appendChild(div);
+      });
+    }
+  }
 }
 
 // ------------------------------------------------------------
-// 4. GRUPOS E COMUNIDADES (COM REALTIME ATIVO)
+// 4. GRUPOS E COMUNIDADES (COM REALTIME)
 // ------------------------------------------------------------
 async function loadGroups() {
   if (messageSubscription) {
@@ -357,7 +448,6 @@ function openGroupChat(group) {
   const groupsList = document.getElementById('groupsList');
   if (!groupsList) return;
   
-  // Removido o texto "(Estilo WhatsApp)" e mantido apenas indicador limpo
   groupsList.innerHTML = `
     <div class="panel" style="display: flex; flex-direction: column; height: 65vh; padding: 0; overflow: hidden; background: #0b0b0f;">
       <div style="padding: 16px; background: #16161f; border-bottom: 1px solid #262626; display: flex; justify-content: space-between; align-items: center;">
@@ -407,7 +497,6 @@ function appendMessageToChat(msg) {
   const container = document.getElementById('chatMessages');
   if (!container) return;
 
-  // Remove o aviso de "nenhuma mensagem" se existir
   const emptyMsg = container.querySelector('p');
   if (emptyMsg && emptyMsg.textContent.includes('Nenhuma mensagem')) {
     emptyMsg.remove();
@@ -432,14 +521,13 @@ window.sendGroupMessage = async function() {
   const content = input ? input.value.trim() : '';
   if (!content) return;
 
-  input.value = ''; // Limpa logo o campo para melhor fluidez
+  input.value = '';
 
   await supabaseClient.from('group_messages').insert([
     { group_id: activeGroupId, user_id: currentUser.id, content }
   ]);
 }
 
-// Configura o Realtime do Supabase para atualizar as mensagens na hora
 function setupRealtimeChat(groupId) {
   if (messageSubscription) {
     supabaseClient.removeChannel(messageSubscription);
@@ -453,7 +541,6 @@ function setupRealtimeChat(groupId) {
       table: 'group_messages',
       filter: `group_id=eq.${groupId}`
     }, async (payload) => {
-      // Busca o username do perfil associado à nova mensagem recebida
       const { data: profileData } = await supabaseClient
         .from('profiles')
         .select('username')
