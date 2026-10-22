@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS COMPLETO (CORREÇÃO DE CLIQUE NOS GRUPOS)
+// STUDY ORDER — APP.JS COMPLETO (COM REALTIME NOS GRUPOS)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -14,6 +14,7 @@ let currentProfile = null;
 let activeAuthMode = 'login';
 let selectedSubjectId = null;
 let activeGroupId = null;
+let messageSubscription = null; // Subscrição do Realtime
 
 const MOTIVATIONAL_QUOTES = [
   "O sucesso é a soma de pequenos esforços repetidos dia após dia.",
@@ -151,6 +152,13 @@ async function loadProfile() {
 function setupNavigation() {
   document.querySelectorAll('.nav-link').forEach(btn => {
     btn.addEventListener('click', () => {
+      // Se sair da aba de grupos, limpa subscrição do realtime
+      if (messageSubscription) {
+        supabaseClient.removeChannel(messageSubscription);
+        messageSubscription = null;
+      }
+      activeGroupId = null;
+
       document.querySelectorAll('.nav-link').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
 
@@ -162,7 +170,6 @@ function setupNavigation() {
       const breadcrumb = document.getElementById('breadcrumb');
       if (breadcrumb) breadcrumb.textContent = btn.textContent.trim();
 
-      // Se voltar para a aba de grupos, recarrega a lista de grupos
       if (targetId === 'groupsView') {
         loadGroups();
       }
@@ -172,6 +179,7 @@ function setupNavigation() {
   const logoutBtn = document.getElementById('logoutBtn');
   if (logoutBtn) {
     logoutBtn.onclick = async () => {
+      if (messageSubscription) supabaseClient.removeChannel(messageSubscription);
       await supabaseClient.auth.signOut();
       location.reload();
     };
@@ -300,9 +308,15 @@ async function loadSubjectDetails(subjectId) {
 }
 
 // ------------------------------------------------------------
-// 4. GRUPOS E COMUNIDADES (CHAT ESTILO WHATSAPP)
+// 4. GRUPOS E COMUNIDADES (COM REALTIME ATIVO)
 // ------------------------------------------------------------
 async function loadGroups() {
+  if (messageSubscription) {
+    supabaseClient.removeChannel(messageSubscription);
+    messageSubscription = null;
+  }
+  activeGroupId = null;
+
   const groupsList = document.getElementById('groupsList');
   if (!groupsList) return;
 
@@ -323,15 +337,13 @@ async function loadGroups() {
     const card = document.createElement('div');
     card.className = 'panel';
     card.style.cssText = 'margin-bottom: 12px; cursor: pointer; border: 1px solid #262626; transition: 0.2s;';
-    
-    // Atribui o evento de clique diretamente ao card do grupo
     card.onclick = () => openGroupChat(group);
 
     card.innerHTML = `
       <div style="display: flex; justify-content: space-between; align-items: center;">
         <div>
           <h3 style="color: var(--accent); margin-bottom: 4px;">👥 ${escapeHtml(group.name)}</h3>
-          <p style="font-size: 13px; color: #a8a8a8; margin: 0;">Clique para abrir o chat e trocar mensagens no grupo.</p>
+          <p style="font-size: 13px; color: #a8a8a8; margin: 0;">Clique para abrir o chat do grupo.</p>
         </div>
         <button class="primary" style="padding: 6px 14px; font-size: 12px;" onclick="event.stopPropagation(); openGroupChat({id: '${group.id}', name: '${group.name}'})">Entrar no Grupo</button>
       </div>
@@ -345,12 +357,13 @@ function openGroupChat(group) {
   const groupsList = document.getElementById('groupsList');
   if (!groupsList) return;
   
+  // Removido o texto "(Estilo WhatsApp)" e mantido apenas indicador limpo
   groupsList.innerHTML = `
     <div class="panel" style="display: flex; flex-direction: column; height: 65vh; padding: 0; overflow: hidden; background: #0b0b0f;">
       <div style="padding: 16px; background: #16161f; border-bottom: 1px solid #262626; display: flex; justify-content: space-between; align-items: center;">
         <div>
           <h3 style="margin: 0; color: var(--accent);">👥 ${escapeHtml(group.name)}</h3>
-          <small style="color: #22c55e;">● Chat ao vivo (Estilo WhatsApp)</small>
+          <small style="color: #22c55e;">● Chat ao vivo</small>
         </div>
         <button onclick="loadGroups()" style="background: #262626; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer;">← Voltar aos Grupos</button>
       </div>
@@ -367,6 +380,7 @@ function openGroupChat(group) {
   `;
 
   loadGroupMessages(group.id);
+  setupRealtimeChat(group.id);
 }
 
 async function loadGroupMessages(groupId) {
@@ -385,18 +399,30 @@ async function loadGroupMessages(groupId) {
     return;
   }
 
-  messages.forEach(msg => {
-    const isMe = msg.user_id === currentUser.id;
-    const msgDiv = document.createElement('div');
-    msgDiv.style.cssText = `max-width: 70%; padding: 10px 14px; border-radius: 10px; font-size: 13px; align-self: ${isMe ? 'flex-end' : 'flex-start'}; background: ${isMe ? '#2563eb' : '#1f1f2e'}; color: white; word-break: break-word;`;
-    
-    msgDiv.innerHTML = `
-      <div style="font-size: 11px; font-weight: bold; color: ${isMe ? '#93c5fd' : '#38bdf8'}; margin-bottom: 2px;">@${msg.profiles?.username || 'utilizador'}</div>
-      <div>${escapeHtml(msg.content)}</div>
-    `;
-    container.appendChild(msgDiv);
-  });
+  messages.forEach(msg => appendMessageToChat(msg));
+  container.scrollTop = container.scrollHeight;
+}
 
+function appendMessageToChat(msg) {
+  const container = document.getElementById('chatMessages');
+  if (!container) return;
+
+  // Remove o aviso de "nenhuma mensagem" se existir
+  const emptyMsg = container.querySelector('p');
+  if (emptyMsg && emptyMsg.textContent.includes('Nenhuma mensagem')) {
+    emptyMsg.remove();
+  }
+
+  const isMe = msg.user_id === currentUser.id;
+  const msgDiv = document.createElement('div');
+  msgDiv.style.cssText = `max-width: 70%; padding: 10px 14px; border-radius: 10px; font-size: 13px; align-self: ${isMe ? 'flex-end' : 'flex-start'}; background: ${isMe ? '#2563eb' : '#1f1f2e'}; color: white; word-break: break-word;`;
+  
+  const username = msg.profiles?.username || 'utilizador';
+  msgDiv.innerHTML = `
+    <div style="font-size: 11px; font-weight: bold; color: ${isMe ? '#93c5fd' : '#38bdf8'}; margin-bottom: 2px;">@${username}</div>
+    <div>${escapeHtml(msg.content)}</div>
+  `;
+  container.appendChild(msgDiv);
   container.scrollTop = container.scrollHeight;
 }
 
@@ -406,12 +432,42 @@ window.sendGroupMessage = async function() {
   const content = input ? input.value.trim() : '';
   if (!content) return;
 
+  input.value = ''; // Limpa logo o campo para melhor fluidez
+
   await supabaseClient.from('group_messages').insert([
     { group_id: activeGroupId, user_id: currentUser.id, content }
   ]);
+}
 
-  input.value = '';
-  loadGroupMessages(activeGroupId);
+// Configura o Realtime do Supabase para atualizar as mensagens na hora
+function setupRealtimeChat(groupId) {
+  if (messageSubscription) {
+    supabaseClient.removeChannel(messageSubscription);
+  }
+
+  messageSubscription = supabaseClient
+    .channel(`public:group_messages:group_id=eq.${groupId}`)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'group_messages',
+      filter: `group_id=eq.${groupId}`
+    }, async (payload) => {
+      // Busca o username do perfil associado à nova mensagem recebida
+      const { data: profileData } = await supabaseClient
+        .from('profiles')
+        .select('username')
+        .eq('id', payload.new.user_id)
+        .single();
+
+      const fullMessage = {
+        ...payload.new,
+        profiles: profileData || { username: 'utilizador' }
+      };
+
+      appendMessageToChat(fullMessage);
+    })
+    .subscribe();
 }
 
 // ------------------------------------------------------------
