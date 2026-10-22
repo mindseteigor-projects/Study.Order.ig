@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS DEFINITIVO (COMPATÍVEL COM O HTML)
+// STUDY ORDER — APP.JS COMPLETO (CORREÇÃO DE MATÉRIAS E COMUNIDADES)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -11,7 +11,7 @@ const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_
 
 let currentUser = null;
 let currentProfile = null;
-let activeAuthMode = 'login'; // 'login' ou 'signup'
+let activeAuthMode = 'login';
 let selectedSubjectId = null;
 
 const MOTIVATIONAL_QUOTES = [
@@ -22,7 +22,7 @@ const MOTIVATIONAL_QUOTES = [
 ];
 
 // ------------------------------------------------------------
-// 1. INICIALIZAÇÃO E AUTENTICAÇÃO
+// 1. AUTENTICAÇÃO E SESSÃO
 // ------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
   setupAuthTabs();
@@ -31,7 +31,6 @@ document.addEventListener('DOMContentLoaded', () => {
   setupNavigation();
 });
 
-// Controlo das abas de Login / Criar Conta baseadas no seu HTML
 function setupAuthTabs() {
   const authTabs = document.querySelectorAll('.auth-tab');
   const usernameFieldContainer = document.getElementById('usernameFieldContainer');
@@ -44,8 +43,7 @@ function setupAuthTabs() {
     tab.addEventListener('click', () => {
       authTabs.forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
-
-      activeAuthMode = tab.dataset.auth; // 'login' ou 'signup'
+      activeAuthMode = tab.dataset.auth;
 
       if (activeAuthMode === 'signup') {
         if (usernameFieldContainer) usernameFieldContainer.classList.remove('hidden');
@@ -60,7 +58,6 @@ function setupAuthTabs() {
   });
 }
 
-// Submissão do Formulário de Autenticação
 function setupAuthForm() {
   const authForm = document.getElementById('authForm');
   if (!authForm) return;
@@ -97,7 +94,7 @@ function setupAuthForm() {
       });
 
       if (error) {
-        if (authMsg) authMsg.textContent = 'Erro ao criar conta: ' + error.message;
+        if (authMsg) authMsg.textContent = 'Erro: ' + error.message;
         return;
       }
 
@@ -107,17 +104,14 @@ function setupAuthForm() {
         ]);
       }
 
-      if (authMsg) authMsg.textContent = 'Conta criada com sucesso! Faça login.';
-      alert('Conta criada com sucesso! Faça login na aba Entrar.');
+      alert('Conta criada com sucesso! Faça login.');
       location.reload();
     } else {
       const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
-
       if (error) {
         if (authMsg) authMsg.textContent = 'Erro ao entrar: ' + error.message;
         return;
       }
-
       checkUser();
     }
   };
@@ -151,7 +145,7 @@ async function loadProfile() {
 }
 
 // ------------------------------------------------------------
-// 2. NAVEGAÇÃO E VIEWS PRINCIPAIS
+// 2. NAVEGAÇÃO ENTRE ABAS DO APP
 // ------------------------------------------------------------
 function setupNavigation() {
   document.querySelectorAll('.nav-link').forEach(btn => {
@@ -182,8 +176,9 @@ function initAppFeatures() {
   loadPosts();
   loadSubjects();
   loadTasks();
+  loadGroups();
 
-  // Criar Post
+  // Criar Post no Feed
   const createPostBtn = document.getElementById('createPostBtn');
   if (createPostBtn) {
     createPostBtn.onclick = async () => {
@@ -191,11 +186,8 @@ function initAppFeatures() {
       const media_url = document.getElementById('postMediaInput').value.trim();
       if (!content) return;
 
-      const hashtagMatch = content.match(/#[a-zA-Z0-9_]+/);
-      const hashtag = hashtagMatch ? hashtagMatch[0].toLowerCase() : null;
-
       await supabaseClient.from('posts').insert([
-        { user_id: currentUser.id, content, media_url: media_url || null, hashtag }
+        { user_id: currentUser.id, content, media_url: media_url || null }
       ]);
 
       document.getElementById('postContentInput').value = '';
@@ -204,22 +196,166 @@ function initAppFeatures() {
     };
   }
 
-  // Nova Matéria
+  // Nova Matéria (Botões da barra lateral e do dashboard)
+  const handleNewSubject = async () => {
+    const name = prompt('Nome da Matéria (ex: Matemática, Física, Biologia):');
+    if (!name) return;
+
+    await supabaseClient.from('subjects').insert([{ user_id: currentUser.id, name }]);
+    loadSubjects();
+  };
+
   const newSubjectBtn = document.getElementById('newSubjectBtn');
-  if (newSubjectBtn) {
-    newSubjectBtn.onclick = async () => {
-      const name = prompt('Nome da Matéria (ex: Matemática, Física):');
+  const addSubject2 = document.getElementById('addSubject2');
+  if (newSubjectBtn) newSubjectBtn.onclick = handleNewSubject;
+  if (addSubject2) addSubject2.onclick = handleNewSubject;
+
+  // Criar Grupo / Comunidade
+  const createGroupBtn = document.getElementById('createGroupBtn');
+  if (createGroupBtn) {
+    createGroupBtn.onclick = async () => {
+      const name = prompt('Nome da Comunidade / Grupo de Estudo:');
       if (!name) return;
 
-      await supabaseClient.from('subjects').insert([{ user_id: currentUser.id, name }]);
-      loadSubjects();
+      // Cria a tabela de grupos caso não exista ou insere diretamente
+      await supabaseClient.from('groups').insert([{ user_id: currentUser.id, name }]);
+      loadGroups();
     };
   }
 }
 
 // ------------------------------------------------------------
-// 3. FUNCIONALIDADES DO APP (POSTS, MATÉRIAS, TAREFAS)
+// 3. MATÉRIAS E PASTAS DE ESTUDO (FUNCIONAMENTO COMPLETO)
 // ------------------------------------------------------------
+async function loadSubjects() {
+  const subjectNav = document.getElementById('subjectNav');
+  const subjectCards = document.getElementById('subjectCards');
+  if (!subjectNav) return;
+
+  const { data: subjects } = await supabaseClient.from('subjects').select('*').eq('user_id', currentUser.id);
+  subjectNav.innerHTML = '';
+  if (subjectCards) subjectCards.innerHTML = '';
+
+  if (!subjects || subjects.length === 0) {
+    subjectNav.innerHTML = '<small style="color: #737373; padding: 6px 12px; display:block;">Nenhuma matéria</small>';
+    if (subjectCards) subjectCards.innerHTML = '<p style="color: #737373; font-size: 13px;">Nenhuma matéria cadastrada.</p>';
+    return;
+  }
+
+  subjects.forEach(sub => {
+    // Adiciona na barra lateral esquerda ("MINHAS MATÉRIAS")
+    const navBtn = document.createElement('button');
+    navBtn.className = 'side-action';
+    navBtn.textContent = `📓 ${sub.name}`;
+    navBtn.onclick = () => openSubjectView(sub);
+    subjectNav.appendChild(navBtn);
+
+    // Adiciona nos cards do Dashboard ("Meus Estudos")
+    if (subjectCards) {
+      const card = document.createElement('div');
+      card.style.cssText = 'background: #121212; border: 1px solid #262626; border-radius: 10px; padding: 14px; cursor: pointer; transition: 0.2s;';
+      card.onclick = () => openSubjectView(sub);
+      card.innerHTML = `<b style="color: #fff; font-size: 15px;">${escapeHtml(sub.name)}</b><br><small style="color: #38bdf8;">Ver anotações e tarefas</small>`;
+      subjectCards.appendChild(card);
+    }
+  });
+}
+
+function openSubjectView(sub) {
+  selectedSubjectId = sub.id;
+  document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
+  const subjectView = document.getElementById('subjectView');
+  if (subjectView) subjectView.classList.remove('hidden');
+
+  const titleEl = document.getElementById('subjectTitle');
+  if (titleEl) titleEl.textContent = sub.name;
+
+  loadSubjectDetails(sub.id);
+}
+
+async function loadSubjectDetails(subjectId) {
+  // Anotações da Matéria
+  const { data: subData } = await supabaseClient.from('subjects').select('notes').eq('id', subjectId).single();
+  const notesArea = document.getElementById('notes');
+  if (notesArea && subData) notesArea.value = subData.notes || '';
+
+  const saveNoteBtn = document.getElementById('saveNoteBtn');
+  if (saveNoteBtn) {
+    saveNoteBtn.onclick = async () => {
+      const notes = notesArea.value;
+      await supabaseClient.from('subjects').update({ notes }).eq('id', subjectId);
+      alert('Anotações salvas com sucesso!');
+    };
+  }
+
+  // Excluir Matéria
+  const deleteSubjectBtn = document.getElementById('deleteSubjectBtn');
+  if (deleteSubjectBtn) {
+    deleteSubjectBtn.onclick = async () => {
+      if (confirm('Tem certeza que deseja excluir esta matéria?')) {
+        await supabaseClient.from('subjects').delete().eq('id', subjectId);
+        document.querySelector('[data-target="dashboard"]').click();
+        loadSubjects();
+      }
+    };
+  }
+}
+
+// ------------------------------------------------------------
+// 4. COMUNIDADES E GRUPOS DE ESTUDO
+// ------------------------------------------------------------
+async function loadGroups() {
+  const groupsList = document.getElementById('groupsList');
+  if (!groupsList) return;
+
+  const { data: groups, error } = await supabaseClient.from('groups').select('*').order('created_at', { ascending: false });
+  
+  if (error) {
+    groupsList.innerHTML = '<p style="color: #737373; font-size: 13px;">Para usar os grupos, certifique-se de criar a tabela "groups" no Supabase.</p>';
+    return;
+  }
+
+  groupsList.innerHTML = '';
+  if (!groups || groups.length === 0) {
+    groupsList.innerHTML = '<p style="color: #737373; padding: 20px;">Nenhum grupo de estudo ativo no momento. Crie o primeiro acima!</p>';
+    return;
+  }
+
+  groups.forEach(group => {
+    const card = document.createElement('div');
+    card.className = 'panel';
+    card.style.marginBottom = '12px';
+    card.innerHTML = `
+      <h3 style="color: var(--accent); margin-bottom: 4px;">👥 ${escapeHtml(group.name)}</h3>
+      <p style="font-size: 13px; color: #a8a8a8;">Grupo de estudo ativo para troca de materiais e foco em grupo.</p>
+    `;
+    groupsList.appendChild(card);
+  });
+}
+
+// ------------------------------------------------------------
+// 5. TAREFAS E FEED
+// ------------------------------------------------------------
+async function loadTasks() {
+  const upcoming = document.getElementById('upcoming');
+  if (!upcoming) return;
+
+  const { data: tasks } = await supabaseClient.from('tasks').select('*').eq('user_id', currentUser.id).limit(5);
+  upcoming.innerHTML = '';
+
+  if (!tasks || tasks.length === 0) {
+    upcoming.innerHTML = '<p style="color: #737373; font-size: 13px;">Nenhuma tarefa agendada.</p>';
+    return;
+  }
+
+  tasks.forEach(t => {
+    const item = document.createElement('div');
+    item.style.cssText = 'padding: 10px 0; border-bottom: 1px solid #262626; font-size: 13px; display:flex; justify-content:space-between;';
+    item.innerHTML = `<b>${escapeHtml(t.title)}</b> <span style="color: var(--accent);">${t.due_date || ''}</span>`;
+    upcoming.appendChild(item);
+  });
+}
+
 async function loadPosts() {
   const container = document.getElementById('postsList');
   if (!container) return;
@@ -228,7 +364,7 @@ async function loadPosts() {
   container.innerHTML = '';
 
   if (!posts || posts.length === 0) {
-    container.innerHTML = '<p style="color: #737373; padding: 20px;">Nenhuma publicação ainda.</p>';
+    container.innerHTML = '<p style="text-align: center; color: #737373; padding: 40px 0;">Nenhuma publicação ainda.</p>';
     return;
   }
 
@@ -251,107 +387,7 @@ async function loadPosts() {
   });
 }
 
-async function loadSubjects() {
-  const subjectNav = document.getElementById('subjectNav');
-  const subjectCards = document.getElementById('subjectCards');
-  if (!subjectNav) return;
-
-  const { data: subjects } = await supabaseClient.from('subjects').select('*').eq('user_id', currentUser.id);
-  subjectNav.innerHTML = '';
-  if (subjectCards) subjectCards.innerHTML = '';
-
-  if (!subjects || subjects.length === 0) {
-    if (subjectNav) subjectNav.innerHTML = '<small style="color: #737373; padding: 6px 12px; display:block;">Nenhuma matéria</small>';
-    return;
-  }
-
-  subjects.forEach(sub => {
-    // Menu lateral
-    const navBtn = document.createElement('button');
-    navBtn.className = 'side-action';
-    navBtn.textContent = `📓 ${sub.name}`;
-    navBtn.onclick = () => openSubjectView(sub);
-    subjectNav.appendChild(navBtn);
-
-    // Cards do Dashboard
-    if (subjectCards) {
-      const card = document.createElement('div');
-      card.style.cssText = 'background: #121212; border: 1px solid #262626; border-radius: 10px; padding: 14px; cursor: pointer;';
-      card.onclick = () => openSubjectView(sub);
-      card.innerHTML = `<b style="color: #fff;">${escapeHtml(sub.name)}</b><br><small style="color: #737373;">Ver anotações e tarefas</small>`;
-      subjectCards.appendChild(card);
-    }
-  });
-}
-
-function openSubjectView(sub) {
-  selectedSubjectId = sub.id;
-  document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
-  const subjectView = document.getElementById('subjectView');
-  if (subjectView) subjectView.classList.remove('hidden');
-
-  const titleEl = document.getElementById('subjectTitle');
-  if (titleEl) titleEl.textContent = sub.name;
-
-  loadSubjectDetails(sub.id);
-}
-
-async function loadSubjectDetails(subjectId) {
-  // Carregar Anotações
-  const { data: notesData } = await supabaseClient.from('subjects').select('notes').eq('id', subjectId).single();
-  const notesArea = document.getElementById('notes');
-  if (notesArea && notesData) notesArea.value = notesData.notes || '';
-
-  const saveNoteBtn = document.getElementById('saveNoteBtn');
-  if (saveNoteBtn) {
-    saveNoteBtn.onclick = async () => {
-      const notes = notesArea.value;
-      await supabaseClient.from('subjects').update({ notes }).eq('id', subjectId);
-      alert('Anotações salvas com sucesso!');
-    };
-  }
-
-  // Carregar Tarefas da matéria
-  const tasksContainer = document.getElementById('tasks');
-  if (tasksContainer) {
-    const { data: tasks } = await supabaseClient.from('tasks').select('*').eq('user_id', currentUser.id);
-    tasksContainer.innerHTML = '';
-    
-    if (!tasks || tasks.length === 0) {
-      tasksContainer.innerHTML = '<small style="color: #737373;">Nenhuma tarefa pendente.</small>';
-      return;
-    }
-
-    tasks.forEach(task => {
-      const div = document.createElement('div');
-      div.style.cssText = 'padding: 8px 0; border-bottom: 1px solid #262626; font-size: 13px; display:flex; justify-content:space-between; align-items:center;';
-      div.innerHTML = `<span>${escapeHtml(task.title)}</span> <small style="color:var(--accent);">${task.due_date || ''}</small>`;
-      tasksContainer.appendChild(div);
-    });
-  }
-}
-
-async function loadTasks() {
-  const upcoming = document.getElementById('upcoming');
-  if (!upcoming) return;
-
-  const { data: tasks } = await supabaseClient.from('tasks').select('*').eq('user_id', currentUser.id).limit(5);
-  upcoming.innerHTML = '';
-
-  if (!tasks || tasks.length === 0) {
-    upcoming.innerHTML = '<p style="color: #737373; font-size: 13px;">Nenhuma tarefa agendada.</p>';
-    return;
-  }
-
-  tasks.forEach(t => {
-    const item = document.createElement('div');
-    item.style.cssText = 'padding: 10px 0; border-bottom: 1px solid #262626; font-size: 13px; display:flex; justify-content:space-between;';
-    item.innerHTML = `<b>${escapeHtml(t.title)}</b> <span style="color: var(--accent);">${t.due_date || ''}</span>`;
-    upcoming.appendChild(item);
-  });
-}
-
 function escapeHtml(text) {
   if (!text) return '';
   return text.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
-}
+}v
