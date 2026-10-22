@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — ORGANIZADOR COMPLETO (MATÉRIAS, TAREFAS & LEMBRETES)
+// STUDY ORDER — CÓDIGO COMPLETO DEFINITIVO
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -11,6 +11,7 @@ const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_
 
 let currentUser = null;
 let currentProfile = null;
+let activeAuthMode = 'login';
 let selectedSubjectId = null;
 
 const MOTIVATIONAL_QUOTES = [
@@ -21,42 +22,94 @@ const MOTIVATIONAL_QUOTES = [
 ];
 
 // ------------------------------------------------------------
-// AUTENTICAÇÃO E CHECAGEM DE SESSÃO
+// 1. INICIALIZAÇÃO E AUTENTICAÇÃO (LOGIN / CADASTRO)
 // ------------------------------------------------------------
-window.handleDirectLogin = async function(e) {
-  if (e) e.preventDefault();
-  
-  const emailInput = document.getElementById('email') || document.querySelector('input[type="email"]');
-  const passwordInput = document.getElementById('password') || document.querySelector('input[type="password"]');
-  const authMsg = document.getElementById('authMsg');
+document.addEventListener('DOMContentLoaded', () => {
+  setupAuthListeners();
+  checkUser();
+});
 
-  const email = emailInput ? emailInput.value.trim() : '';
-  const password = passwordInput ? passwordInput.value.trim() : '';
-
-  if (!email || !password) {
-    alert('Por favor, introduza o e-mail e a palavra-passe.');
-    return;
-  }
-
-  if (authMsg) authMsg.textContent = 'A autenticar no Supabase...';
-
-  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-
-  if (error) {
-    alert('Erro de autenticação: ' + error.message);
-    if (authMsg) authMsg.textContent = 'Erro: ' + error.message;
-  } else {
-    currentUser = data.user;
-    await checkUser();
-  }
-};
-
-function setupAuthEvents() {
+function setupAuthListeners() {
   const authForm = document.getElementById('authForm') || document.querySelector('form');
-  if (authForm) authForm.onsubmit = window.handleDirectLogin;
+  const authTabs = document.querySelectorAll('.auth-tab');
+  const usernameFieldContainer = document.getElementById('usernameFieldContainer');
+  const authSubmit = document.getElementById('authSubmit');
+  const usernameInput = document.getElementById('usernameInput');
 
-  const submitBtn = document.getElementById('authSubmit') || document.querySelector('button[type="submit"]');
-  if (submitBtn) submitBtn.onclick = window.handleDirectLogin;
+  if (authTabs && authTabs.length > 0) {
+    authTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        authTabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        activeAuthMode = tab.dataset.auth || 'login';
+
+        if (activeAuthMode === 'signup') {
+          if (usernameFieldContainer) usernameFieldContainer.classList.remove('hidden');
+          if (usernameInput) usernameInput.required = true;
+          if (authSubmit) authSubmit.textContent = 'Criar conta';
+        } else {
+          if (usernameFieldContainer) usernameFieldContainer.classList.add('hidden');
+          if (usernameInput) usernameInput.required = false;
+          if (authSubmit) authSubmit.textContent = 'Entrar';
+        }
+      });
+    });
+  }
+
+  if (authForm) {
+    authForm.onsubmit = async (e) => {
+      e.preventDefault();
+      
+      const emailInput = document.getElementById('email') || document.querySelector('input[type="email"]');
+      const passwordInput = document.getElementById('password') || document.querySelector('input[type="password"]');
+      const authMsg = document.getElementById('authMsg');
+
+      const email = emailInput ? emailInput.value.trim() : '';
+      const password = passwordInput ? passwordInput.value.trim() : '';
+
+      if (!email || !password) {
+        alert('Por favor, preencha o e-mail e a palavra-passe.');
+        return;
+      }
+
+      if (authMsg) authMsg.textContent = 'A processar...';
+
+      if (activeAuthMode === 'signup') {
+        const username = usernameInput ? usernameInput.value.trim() : 'estudante';
+        
+        const { data, error } = await supabaseClient.auth.signUp({
+          email,
+          password,
+          options: { data: { username } }
+        });
+
+        if (error) {
+          alert('Erro ao criar conta: ' + error.message);
+          if (authMsg) authMsg.textContent = error.message;
+          return;
+        }
+
+        if (data?.user) {
+          await supabaseClient.from('profiles').upsert([
+            { id: data.user.id, username, updated_at: new Date() }
+          ]);
+        }
+        
+        alert('Conta criada com sucesso! Faça login.');
+        location.reload();
+      } else {
+        const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+
+        if (error) {
+          alert('Erro ao entrar: ' + error.message);
+          if (authMsg) authMsg.textContent = error.message;
+          return;
+        }
+
+        checkUser();
+      }
+    };
+  }
 }
 
 async function checkUser() {
@@ -83,7 +136,7 @@ async function loadProfile() {
 }
 
 // ------------------------------------------------------------
-// ESTRUTURA PRINCIPAL E NAVEGAÇÃO
+// 2. LAYOUT PRINCIPAL E NAVEGAÇÃO DA APLICAÇÃO
 // ------------------------------------------------------------
 function renderLayout() {
   const appContainer = document.getElementById('app');
@@ -145,61 +198,53 @@ function renderLayout() {
 
           <!-- VIEW 2: MATÉRIAS & TAREFAS -->
           <div id="studyOrganizerView" class="view-section" style="display: none;">
-            
-            <!-- ABAS DE ALTERNÂNCIA (PASTAS VS TAREFAS) -->
             <div style="display: flex; border-bottom: 1px solid #262626; margin-bottom: 20px;">
               <button id="tabSubjectsBtn" onclick="switchOrganizerTab('subjects')" style="flex:1; background:none; border:none; color:#38bdf8; border-bottom:2px solid #38bdf8; padding:12px; font-weight:bold; cursor:pointer;">📁 Pastas de Matérias</button>
               <button id="tabTasksBtn" onclick="switchOrganizerTab('tasks')" style="flex:1; background:none; border:none; color:#737373; padding:12px; font-weight:bold; cursor:pointer;">📋 Tarefas & Lembretes</button>
             </div>
 
-            <!-- SUB-VIEW 1: PASTAS DE MATÉRIAS & MATERIAIS -->
             <div id="subjectsSubView" style="display: block;">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                 <h3 style="margin: 0; font-size: 18px;">Suas Pastas de Estudo</h3>
                 <button onclick="createNewSubjectFolder()" style="background: #0095f6; color: #fff; border: none; padding: 8px 14px; border-radius: 8px; font-weight: bold; cursor: pointer;">+ Nova Pasta / Matéria</button>
               </div>
 
-              <!-- Grid de Pastas -->
               <div id="subjectsGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px;"></div>
 
-              <!-- Área do Conteúdo da Pasta Selecionada -->
               <div id="subjectDetailArea" style="display: none; background: #121212; border: 1px solid #262626; border-radius: 12px; padding: 16px; margin-top: 20px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #262626; padding-bottom: 10px;">
                   <h3 id="currentSubjectTitle" style="margin: 0; color: #38bdf8;">Nome da Matéria</h3>
                   <button onclick="closeSubjectDetail()" style="background: none; border: none; color: #737373; cursor: pointer;">✕ Fechar</button>
                 </div>
 
-                <!-- Formulário para adicionar notas/links/vídeos/imagens -->
                 <div style="background: #000; border: 1px solid #262626; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
                   <h4 style="margin: 0 0 10px 0; font-size: 14px;">Adicionar Material de Estudo</h4>
-                  <input type="text" id="materialTitle" placeholder="Título do material (ex: Resumo de Álgebra, Vídeo de Aula)..." style="width: 100%; background: #121212; border: 1px solid #262626; padding: 8px; color: #fff; border-radius: 6px; margin-bottom: 8px; outline: none; font-size: 13px;">
+                  <input type="text" id="materialTitle" placeholder="Título do material (ex: Resumo, Vídeo)..." style="width: 100%; background: #121212; border: 1px solid #262626; padding: 8px; color: #fff; border-radius: 6px; margin-bottom: 8px; outline: none; font-size: 13px;">
                   
                   <div style="display: flex; gap: 8px; margin-bottom: 8px;">
                     <select id="materialType" style="background: #121212; border: 1px solid #262626; padding: 8px; color: #fff; border-radius: 6px; font-size: 13px;">
                       <option value="text">📄 Anotação / Texto</option>
                       <option value="link">🔗 Link / Referência</option>
-                      <option value="video">🎥 Vídeo (URL / YouTube / MP4)</option>
+                      <option value="video">🎥 Vídeo (URL / MP4)</option>
                       <option value="image">🖼️ Imagem (URL)</option>
                     </select>
-                    <input type="text" id="materialUrl" placeholder="URL do Vídeo, Imagem ou Link (opcional)" style="flex: 1; background: #121212; border: 1px solid #262626; padding: 8px; color: #fff; border-radius: 6px; outline: none; font-size: 13px;">
+                    <input type="text" id="materialUrl" placeholder="URL do Vídeo, Imagem ou Link" style="flex: 1; background: #121212; border: 1px solid #262626; padding: 8px; color: #fff; border-radius: 6px; outline: none; font-size: 13px;">
                   </div>
 
-                  <textarea id="materialContent" placeholder="Escreva suas anotações, resumo ou detalhes..." style="width: 100%; background: #121212; border: 1px solid #262626; padding: 8px; color: #fff; border-radius: 6px; resize: none; height: 70px; outline: none; font-size: 13px; font-family: inherit;"></textarea>
+                  <textarea id="materialContent" placeholder="Escreva suas anotações ou detalhes..." style="width: 100%; background: #121212; border: 1px solid #262626; padding: 8px; color: #fff; border-radius: 6px; resize: none; height: 70px; outline: none; font-size: 13px; font-family: inherit;"></textarea>
                   
                   <button onclick="addMaterialToSubject()" style="width: 100%; background: #38bdf8; color: #000; border: none; padding: 8px; border-radius: 6px; font-weight: bold; margin-top: 8px; cursor: pointer;">Salvar Material na Pasta</button>
                 </div>
 
-                <!-- Lista de Materiais da Pasta -->
                 <div id="subjectMaterialsList"></div>
               </div>
             </div>
 
-            <!-- SUB-VIEW 2: ORGANIZADOR DE TAREFAS & LEMBRETES -->
             <div id="tasksSubView" style="display: none;">
               <div style="background: #121212; border: 1px solid #262626; border-radius: 12px; padding: 16px; margin-bottom: 20px;">
                 <h4 style="margin: 0 0 12px 0; font-size: 15px;">Criar Nova Tarefa / Evento</h4>
                 
-                <input type="text" id="taskTitle" placeholder="Nome da tarefa ou compromisso de estudo..." style="width: 100%; background: #000; border: 1px solid #262626; padding: 10px; color: #fff; border-radius: 6px; margin-bottom: 10px; outline: none;">
+                <input type="text" id="taskTitle" placeholder="Nome da tarefa ou compromisso..." style="width: 100%; background: #000; border: 1px solid #262626; padding: 10px; color: #fff; border-radius: 6px; margin-bottom: 10px; outline: none;">
                 
                 <div style="display: flex; gap: 8px; margin-bottom: 10px;">
                   <div style="flex:1;">
@@ -230,7 +275,6 @@ function renderLayout() {
                   </div>
                 </div>
 
-                <!-- Campo de Lembrete -->
                 <div style="margin-bottom: 12px;">
                   <label style="font-size: 11px; color: #38bdf8; font-weight: bold;">⏰ Lembrete do Evento:</label>
                   <select id="taskReminder" style="width:100%; background: #000; border: 1px solid #262626; padding: 8px; color: #fff; border-radius: 6px; margin-top: 4px;">
@@ -244,7 +288,6 @@ function renderLayout() {
                 <button id="saveTaskBtn" onclick="createTask()" style="width: 100%; background: #0095f6; color: #fff; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer;">Adicionar à Lista de Estudos</button>
               </div>
 
-              <!-- Modos de Ordenação de Listas -->
               <div style="display: flex; gap: 8px; margin-bottom: 16px; overflow-x: auto; padding-bottom: 4px;">
                 <button onclick="loadTasks('date')" style="background: #262626; color: #fff; border: none; padding: 6px 12px; border-radius: 16px; font-size: 12px; cursor: pointer;">1. Por Datas</button>
                 <button onclick="loadTasks('priority')" style="background: #262626; color: #fff; border: none; padding: 6px 12px; border-radius: 16px; font-size: 12px; cursor: pointer;">2. Por Prioridade</button>
@@ -254,7 +297,6 @@ function renderLayout() {
 
               <div id="tasksList"></div>
             </div>
-
           </div>
 
           <!-- VIEW 3: EVOLUÇÃO -->
@@ -324,6 +366,42 @@ function initAppLogic() {
     location.reload();
   });
 
+  document.getElementById('submitPostBtn')?.addEventListener('click', async () => {
+    const content = document.getElementById('postContentInput').value.trim();
+    const fileInput = document.getElementById('postFileInput');
+    const file = fileInput ? fileInput.files[0] : null;
+
+    if (!content) return;
+
+    let media_url = null;
+    let media_type = null;
+
+    if (file) {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Math.random()}.${fileExt}`;
+      const filePath = `posts/${fileName}`;
+
+      const { error: uploadError } = await supabaseClient.storage.from('media').upload(filePath, file);
+      if (!uploadError) {
+        const { data: urlData } = supabaseClient.storage.from('media').getPublicUrl(filePath);
+        media_url = urlData.publicUrl;
+        media_type = file.type.startsWith('video') ? 'video' : 'image';
+      }
+    }
+
+    const hashtagMatch = content.match(/#[a-zA-Z0-9_]+/);
+    const hashtag = hashtagMatch ? hashtagMatch[0].toLowerCase() : null;
+
+    await supabaseClient.from('posts').insert([
+      { user_id: currentUser.id, content, media_url, media_type, hashtag }
+    ]);
+
+    document.getElementById('postContentInput').value = '';
+    if (fileInput) fileInput.value = '';
+    modal.style.display = 'none';
+    loadPosts();
+  });
+
   loadPosts();
   loadSubjects();
   loadTasks('date');
@@ -331,7 +409,7 @@ function initAppLogic() {
 }
 
 // ------------------------------------------------------------
-// LÓGICA DE GERENCIAMENTO DE MATÉRIAS & MATERIAIS
+// 3. MATÉRIAS & MATERIAIS
 // ------------------------------------------------------------
 window.switchOrganizerTab = function(tab) {
   const subjectsView = document.getElementById('subjectsSubView');
@@ -364,14 +442,5 @@ async function loadSubjects() {
   grid.innerHTML = '';
 
   if (!subjects || subjects.length === 0) {
-    grid.innerHTML = '<p style="color: #737373; grid-column: 1/-1;">Nenhuma pasta de matéria criada. Crie a primeira acima!</p>';
-    return;
-  }
-
-  subjects.forEach(sub => {
-    const card = document.createElement('div');
-    card.style.cssText = 'background: #121212; border: 1px solid #262626; border-radius: 10px; padding: 14px; cursor: pointer; transition: 0.2s;';
-    card.onclick = () => openSubjectDetail(sub.id, sub.name);
-    card.innerHTML = `
-      <div style="font-size: 24px; margin-bottom: 8px;">📁</div>
-      <div style="font-weight: bold; font-size: 14px; color: #fff
+    grid.innerHTML = '<p style="color: #737373; grid-column: 1/-1;">Nenhuma pasta de matéria criada.</p>';
+    return
