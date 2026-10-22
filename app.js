@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — CÓDIGO COMPLETO DEFINITIVO
+// STUDY ORDER — CÓDIGO COMPLETO DEFINITIVO (CORRIGIDO LOGIN/CADASTRO)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -22,7 +22,7 @@ const MOTIVATIONAL_QUOTES = [
 ];
 
 // ------------------------------------------------------------
-// 1. INICIALIZAÇÃO E AUTENTICAÇÃO (LOGIN / CADASTRO)
+// 1. INICIALIZAÇÃO E AUTENTICAÇÃO (CORREÇÃO DE ABAS E SUBMISSÃO)
 // ------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
   setupAuthListeners();
@@ -36,12 +36,16 @@ function setupAuthListeners() {
   const authSubmit = document.getElementById('authSubmit');
   const usernameInput = document.getElementById('usernameInput');
 
+  // Garante a interatividade exata das abas de Login e Criar Conta
   if (authTabs && authTabs.length > 0) {
     authTabs.forEach(tab => {
       tab.addEventListener('click', () => {
         authTabs.forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
-        activeAuthMode = tab.dataset.auth || 'login';
+        
+        // Identifica pelo texto ou pelo dataset
+        const tabText = tab.textContent.toLowerCase();
+        activeAuthMode = (tabText.includes('criar') || tab.dataset.auth === 'signup') ? 'signup' : 'login';
 
         if (activeAuthMode === 'signup') {
           if (usernameFieldContainer) usernameFieldContainer.classList.remove('hidden');
@@ -443,4 +447,236 @@ async function loadSubjects() {
 
   if (!subjects || subjects.length === 0) {
     grid.innerHTML = '<p style="color: #737373; grid-column: 1/-1;">Nenhuma pasta de matéria criada.</p>';
-    return
+    return;
+  }
+
+  subjects.forEach(sub => {
+    const card = document.createElement('div');
+    card.style.cssText = 'background: #121212; border: 1px solid #262626; border-radius: 10px; padding: 14px; cursor: pointer;';
+    card.onclick = () => openSubjectDetail(sub.id, sub.name);
+    card.innerHTML = `
+      <div style="font-size: 24px; margin-bottom: 8px;">📁</div>
+      <div style="font-weight: bold; font-size: 14px; color: #fff;">${escapeHtml(sub.name)}</div>
+      <div style="font-size: 11px; color: #737373; margin-top: 4px;">Abrir arquivos</div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+window.createNewSubjectFolder = async function() {
+  const name = prompt('Nome da nova matéria (ex: Matemática, Biologia):');
+  if (!name) return;
+
+  await supabaseClient.from('subjects').insert([{ user_id: currentUser.id, name }]);
+  loadSubjects();
+}
+
+async function openSubjectDetail(subjectId, subjectName) {
+  selectedSubjectId = subjectId;
+  document.getElementById('subjectDetailArea').style.display = 'block';
+  document.getElementById('currentSubjectTitle').textContent = `📁 ${subjectName}`;
+  loadSubjectMaterials(subjectId);
+}
+
+window.closeSubjectDetail = function() {
+  document.getElementById('subjectDetailArea').style.display = 'none';
+  selectedSubjectId = null;
+}
+
+window.addMaterialToSubject = async function() {
+  if (!selectedSubjectId) return;
+
+  const title = document.getElementById('materialTitle').value.trim();
+  const type = document.getElementById('materialType').value;
+  const url = document.getElementById('materialUrl').value.trim();
+  const content = document.getElementById('materialContent').value.trim();
+
+  if (!title && !content) {
+    alert('Preencha o título ou conteúdo do material.');
+    return;
+  }
+
+  await supabaseClient.from('subject_contents').insert([
+    { subject_id: selectedSubjectId, user_id: currentUser.id, title, type, url: url || null, content }
+  ]);
+
+  document.getElementById('materialTitle').value = '';
+  document.getElementById('materialUrl').value = '';
+  document.getElementById('materialContent').value = '';
+  loadSubjectMaterials(selectedSubjectId);
+}
+
+async function loadSubjectMaterials(subjectId) {
+  const list = document.getElementById('subjectMaterialsList');
+  if (!list) return;
+
+  const { data: materials } = await supabaseClient.from('subject_contents').select('*').eq('subject_id', subjectId).order('created_at', { ascending: false });
+  list.innerHTML = '';
+
+  if (!materials || materials.length === 0) {
+    list.innerHTML = '<p style="color: #737373; font-size: 12px;">Nenhum arquivo ou nota nesta pasta.</p>';
+    return;
+  }
+
+  materials.forEach(mat => {
+    const item = document.createElement('div');
+    item.style.cssText = 'background: #000; border: 1px solid #262626; border-radius: 8px; padding: 12px; margin-bottom: 10px;';
+
+    let mediaRender = '';
+    if (mat.type === 'image' && mat.url) mediaRender = `<img src="${mat.url}" style="width: 100%; max-height: 250px; object-fit: cover; border-radius: 6px; margin-top: 8px;">`;
+    if (mat.type === 'video' && mat.url) mediaRender = `<video src="${mat.url}" controls style="width: 100%; max-height: 250px; margin-top: 8px;"></video>`;
+    if (mat.type === 'link' && mat.url) mediaRender = `<a href="${mat.url}" target="_blank" style="color: #38bdf8; font-size: 12px; display: block; margin-top: 6px;">🔗 Abrir link externo</a>`;
+
+    item.innerHTML = `
+      <div style="font-weight: bold; font-size: 13px; color: #38bdf8;">${escapeHtml(mat.title || 'Material')}</div>
+      <p style="font-size: 13px; color: #e2e8f0; margin: 6px 0; line-height: 1.4;">${escapeHtml(mat.content)}</p>
+      ${mediaRender}
+    `;
+    list.appendChild(item);
+  });
+}
+
+// ------------------------------------------------------------
+// 4. TAREFAS E LEMBRETES
+// ------------------------------------------------------------
+window.createTask = async function() {
+  const title = document.getElementById('taskTitle').value.trim();
+  const start_date = document.getElementById('taskStartDate').value;
+  const due_date = document.getElementById('taskDueDate').value;
+  const priority = document.getElementById('taskPriority').value;
+  const end_time = document.getElementById('taskEndTime').value;
+  const reminder_time = document.getElementById('taskReminder').value;
+
+  if (!title || !start_date || !due_date || !end_time) {
+    alert('Preencha os campos obrigatórios da tarefa.');
+    return;
+  }
+
+  await supabaseClient.from('tasks').insert([
+    { user_id: currentUser.id, title, start_date, due_date, priority, end_time, reminder_time }
+  ]);
+
+  document.getElementById('taskTitle').value = '';
+  loadTasks('date');
+  loadEvolutionStats();
+}
+
+window.loadTasks = async function(orderBy) {
+  const container = document.getElementById('tasksList');
+  if (!container) return;
+
+  let query = supabaseClient.from('tasks').select('*').eq('user_id', currentUser.id);
+
+  if (orderBy === 'date') query = query.order('due_date', { ascending: true });
+  if (orderBy === 'priority') query = query.order('priority', { ascending: true });
+  if (orderBy === 'p_date') query = query.order('priority', { ascending: true }).order('due_date', { ascending: true });
+  if (orderBy === 'smart') query = query.order('priority', { ascending: true }).order('end_time', { ascending: true });
+
+  const { data: tasks } = await query;
+  container.innerHTML = '';
+
+  if (!tasks || tasks.length === 0) {
+    container.innerHTML = '<p style="color: #737373; text-align: center; padding: 20px;">Nenhuma tarefa cadastrada.</p>';
+    return;
+  }
+
+  tasks.forEach(task => {
+    const item = document.createElement('div');
+    item.style.cssText = 'background: #121212; border: 1px solid #262626; border-radius: 8px; padding: 12px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;';
+    
+    let reminderText = '1 hora antes';
+    if (task.reminder_time === '2h') reminderText = '2 horas antes (PRO)';
+    if (task.reminder_time === '30m') reminderText = '30 minutos antes (PRO)';
+    if (task.reminder_time === 'end') reminderText = 'No término exato';
+
+    item.innerHTML = `
+      <div>
+        <div style="font-weight: bold; font-size: 14px; ${task.completed ? 'text-decoration: line-through; color: #a8a8a8;' : ''}">${escapeHtml(task.title)}</div>
+        <small style="color: #a8a8a8;">Até ${task.due_date} às ${task.end_time} | Prioridade: ${task.priority}</small>
+        <div style="font-size: 11px; color: #38bdf8; margin-top: 3px; font-weight: 500;">⏰ Lembrete: ${reminderText}</div>
+        ${task.justification ? `<div style="color: #f59e0b; font-size: 11px; margin-top: 4px;">Motivo alteração: ${escapeHtml(task.justification)}</div>` : ''}
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button onclick="toggleTaskStatus('${task.id}', true, ${task.completed})" style="background: ${task.completed ? '#22c55e' : '#262626'}; border: none; color: #fff; padding: 6px 10px; border-radius: 4px; cursor: pointer;">✓</button>
+        <button onclick="toggleTaskStatus('${task.id}', false, ${task.failed})" style="background: ${task.failed ? '#ef4444' : '#262626'}; border: none; color: #fff; padding: 6px 10px; border-radius: 4px; cursor: pointer;">✕</button>
+      </div>
+    `;
+    container.appendChild(item);
+  });
+}
+
+window.toggleTaskStatus = async function(taskId, isCompleted, currentStatus) {
+  let justification = null;
+  if (currentStatus) {
+    justification = prompt('Justifique o motivo de desmarcar ou alterar a tarefa:');
+    if (!justification) return;
+  }
+
+  const updatePayload = isCompleted 
+    ? { completed: !currentStatus, failed: false, justification } 
+    : { failed: !currentStatus, completed: false, justification };
+
+  await supabaseClient.from('tasks').update(updatePayload).eq('id', taskId);
+  loadTasks('date');
+  loadEvolutionStats();
+}
+
+async function loadEvolutionStats() {
+  const { data: tasks } = await supabaseClient.from('tasks').select('*').eq('user_id', currentUser.id);
+  if (!tasks) return;
+
+  const completed = tasks.filter(t => t.completed).length;
+  const failed = tasks.filter(t => t.failed).length;
+  const total = tasks.length;
+  const rate = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+  const compEl = document.getElementById('statCompleted');
+  const failEl = document.getElementById('statFailed');
+  const rateEl = document.getElementById('statRate');
+
+  if (compEl) compEl.textContent = completed;
+  if (failEl) failEl.textContent = failed;
+  if (rateEl) rateEl.textContent = `${rate}%`;
+}
+
+// ------------------------------------------------------------
+// 5. FEED E POSTS
+// ------------------------------------------------------------
+async function loadPosts() {
+  const container = document.getElementById('postsList');
+  if (!container) return;
+
+  const { data: posts } = await supabaseClient.from('posts').select(`*, profiles:user_id (username)`).order('created_at', { ascending: false });
+  container.innerHTML = '';
+
+  if (!posts || posts.length === 0) {
+    container.innerHTML = '<p style="text-align: center; color: #737373; padding: 40px 0;">Nenhuma publicação ainda.</p>';
+    return;
+  }
+
+  for (let post of posts) {
+    const card = document.createElement('div');
+    card.style.cssText = 'background: #000; border-bottom: 1px solid #262626; margin-bottom: 16px; padding-bottom: 16px;';
+    
+    let mediaRender = '';
+    if (post.media_url) {
+      if (post.media_type === 'video') {
+        mediaRender = `<video src="${post.media_url}" controls style="width: 100%; max-height: 450px; display: block; margin-top: 8px;"></video>`;
+      } else {
+        mediaRender = `<img src="${post.media_url}" style="width: 100%; max-height: 450px; object-fit: cover; display: block; margin-top: 8px;">`;
+      }
+    }
+
+    card.innerHTML = `
+      <div style="padding: 10px 4px; font-weight: 600;">@${post.profiles?.username || 'utilizador'}</div>
+      <div style="padding: 4px; font-size: 14px;">${escapeHtml(post.content)}</div>
+      ${mediaRender}
+    `;
+    container.appendChild(card);
+  }
+}
+
+function escapeHtml(text) {
+  if (!text) return '';
+  return text.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+}
