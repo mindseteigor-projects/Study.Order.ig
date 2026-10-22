@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS COMPLETO (COM CHAT ESTILO WHATSAPP NOS GRUPOS)
+// STUDY ORDER — APP.JS COMPLETO (CORREÇÃO DE CLIQUE NOS GRUPOS)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -13,7 +13,7 @@ let currentUser = null;
 let currentProfile = null;
 let activeAuthMode = 'login';
 let selectedSubjectId = null;
-let activeGroupId = null; // Grupo de chat aberto no momento
+let activeGroupId = null;
 
 const MOTIVATIONAL_QUOTES = [
   "O sucesso é a soma de pequenos esforços repetidos dia após dia.",
@@ -161,6 +161,11 @@ function setupNavigation() {
 
       const breadcrumb = document.getElementById('breadcrumb');
       if (breadcrumb) breadcrumb.textContent = btn.textContent.trim();
+
+      // Se voltar para a aba de grupos, recarrega a lista de grupos
+      if (targetId === 'groupsView') {
+        loadGroups();
+      }
     });
   });
 
@@ -179,7 +184,6 @@ function initAppFeatures() {
   loadTasks();
   loadGroups();
 
-  // Criar Post no Feed
   const createPostBtn = document.getElementById('createPostBtn');
   if (createPostBtn) {
     createPostBtn.onclick = async () => {
@@ -197,7 +201,6 @@ function initAppFeatures() {
     };
   }
 
-  // Nova Matéria
   const handleNewSubject = async () => {
     const name = prompt('Nome da Matéria (ex: Matemática, Física):');
     if (!name) return;
@@ -211,7 +214,6 @@ function initAppFeatures() {
   if (newSubjectBtn) newSubjectBtn.onclick = handleNewSubject;
   if (addSubject2) addSubject2.onclick = handleNewSubject;
 
-  // Criar Grupo
   const createGroupBtn = document.getElementById('createGroupBtn');
   if (createGroupBtn) {
     createGroupBtn.onclick = async () => {
@@ -225,7 +227,7 @@ function initAppFeatures() {
 }
 
 // ------------------------------------------------------------
-// 3. MATÉRIAS E PASTAS DE ESTUDO
+// 3. MATÉRIAS
 // ------------------------------------------------------------
 async function loadSubjects() {
   const subjectNav = document.getElementById('subjectNav');
@@ -298,7 +300,7 @@ async function loadSubjectDetails(subjectId) {
 }
 
 // ------------------------------------------------------------
-// 4. GRUPOS E COMUNIDADES (ESTILO WHATSAPP)
+// 4. GRUPOS E COMUNIDADES (CHAT ESTILO WHATSAPP)
 // ------------------------------------------------------------
 async function loadGroups() {
   const groupsList = document.getElementById('groupsList');
@@ -321,14 +323,17 @@ async function loadGroups() {
     const card = document.createElement('div');
     card.className = 'panel';
     card.style.cssText = 'margin-bottom: 12px; cursor: pointer; border: 1px solid #262626; transition: 0.2s;';
+    
+    // Atribui o evento de clique diretamente ao card do grupo
     card.onclick = () => openGroupChat(group);
+
     card.innerHTML = `
       <div style="display: flex; justify-content: space-between; align-items: center;">
         <div>
           <h3 style="color: var(--accent); margin-bottom: 4px;">👥 ${escapeHtml(group.name)}</h3>
           <p style="font-size: 13px; color: #a8a8a8; margin: 0;">Clique para abrir o chat e trocar mensagens no grupo.</p>
         </div>
-        <button class="primary" style="padding: 6px 14px; font-size: 12px;">Entrar no Grupo</button>
+        <button class="primary" style="padding: 6px 14px; font-size: 12px;" onclick="event.stopPropagation(); openGroupChat({id: '${group.id}', name: '${group.name}'})">Entrar no Grupo</button>
       </div>
     `;
     groupsList.appendChild(card);
@@ -338,11 +343,10 @@ async function loadGroups() {
 function openGroupChat(group) {
   activeGroupId = group.id;
   const groupsList = document.getElementById('groupsList');
+  if (!groupsList) return;
   
-  // Transforma a view de grupos num chat ativo estilo WhatsApp
   groupsList.innerHTML = `
     <div class="panel" style="display: flex; flex-direction: column; height: 65vh; padding: 0; overflow: hidden; background: #0b0b0f;">
-      <!-- Cabeçalho do Grupo -->
       <div style="padding: 16px; background: #16161f; border-bottom: 1px solid #262626; display: flex; justify-content: space-between; align-items: center;">
         <div>
           <h3 style="margin: 0; color: var(--accent);">👥 ${escapeHtml(group.name)}</h3>
@@ -351,12 +355,10 @@ function openGroupChat(group) {
         <button onclick="loadGroups()" style="background: #262626; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer;">← Voltar aos Grupos</button>
       </div>
 
-      <!-- Mensagens do Chat -->
       <div id="chatMessages" style="flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
         <p style="color: #737373; text-align: center;">A carregar mensagens...</p>
       </div>
 
-      <!-- Barra de Envio de Mensagem -->
       <div style="padding: 12px 16px; background: #16161f; border-top: 1px solid #262626; display: flex; gap: 10px;">
         <input type="text" id="chatInput" placeholder="Escreva uma mensagem para o grupo..." style="flex: 1; background: #101017; color: white; border: 1px solid #353542; border-radius: 8px; padding: 10px; outline: none;" onkeydown="if(event.key === 'Enter') sendGroupMessage()">
         <button onclick="sendGroupMessage()" class="primary" style="padding: 0 20px;">Enviar</button>
