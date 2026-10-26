@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS OTIMIZADO (UPLOAD REAL + REALTIME RÁPIDO)
+// STUDY ORDER — APP.JS COMPLETO (OTIMIZADO + IMAGENS DIRETAS)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -16,7 +16,7 @@ let selectedSubjectId = null;
 let activeGroupId = null;
 let messageSubscription = null;
 let feedSubscription = null;
-let selectedPostFileUrl = null; // Guarda temporariamente a URL da imagem carregada no feed
+let selectedPostFileUrl = null;
 
 const MOTIVATIONAL_QUOTES = [
   "O sucesso é a soma de pequenos esforços repetidos dia após dia.",
@@ -232,9 +232,14 @@ function initAppFeatures() {
 
       if (!content && !finalMediaUrl) return;
 
-      await supabaseClient.from('posts').insert([
+      const { error } = await supabaseClient.from('posts').insert([
         { user_id: currentUser.id, content, media_url: finalMediaUrl, media_type: 'image' }
       ]);
+
+      if (error) {
+        alert('Erro ao publicar: ' + error.message);
+        return;
+      }
 
       document.getElementById('postContentInput').value = '';
       if (document.getElementById('postMediaInput')) document.getElementById('postMediaInput').value = '';
@@ -475,7 +480,7 @@ async function loadSubjectLinksAndFiles(subjectId) {
         if (f.type === 'image' || f.url.match(/\.(jpeg|jpg|png|gif|webp)$/i)) {
           previewHtml = `
             <div style="margin-bottom: 6px; font-weight: 500; font-size: 13px;">${escapeHtml(f.title)}</div>
-            <img src="${f.url}" style="width: 100%; max-height: 250px; object-fit: cover; border-radius: 8px; display: block;">
+            <img src="${f.url}" style="width: 100%; max-height: 250px; object-fit: cover; border-radius: 8px; display: block;" onerror="this.style.display='none';">
           `;
         }
 
@@ -597,7 +602,10 @@ function renderPostCard(post) {
 
   let mediaRender = '';
   if (post.media_url) {
-    mediaRender = `<img src="${post.media_url}" style="width: 100%; max-height: 450px; object-fit: cover; border-radius: 8px; display: block; margin-top: 10px;">`;
+    mediaRender = `
+      <div style="margin-top: 10px;">
+        <img src="${post.media_url}" style="width: 100%; max-height: 450px; object-fit: cover; border-radius: 8px; display: block;" onerror="this.style.display='none';">
+      </div>`;
   }
 
   const isMyPost = currentUser && post.user_id === currentUser.id;
@@ -611,7 +619,7 @@ function renderPostCard(post) {
       <span style="font-weight: 600; color: var(--accent);">@${post.profiles?.username || 'utilizador'}</span>
       ${deleteBtnHtml}
     </div>
-    <div style="font-size: 14px; line-height: 1.4;">${escapeHtml(post.content)}</div>
+    <div style="font-size: 14px; line-height: 1.4; word-break: break-word;">${escapeHtml(post.content)}</div>
     ${mediaRender}
   `;
 
