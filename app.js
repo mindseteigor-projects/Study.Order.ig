@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS (CONFIGURADO PARA O BUCKET "media 2")
+// STUDY ORDER — APP.JS (CONFIGURADO PARA O BUCKET "imagens")
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -25,9 +25,6 @@ const MOTIVATIONAL_QUOTES = [
   "Acredite no seu processo. Cada hora de estudo conta!"
 ];
 
-// ------------------------------------------------------------
-// 1. AUTENTICAÇÃO E SESSÃO SEGURA
-// ------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
   setupAuthTabs();
   setupAuthForm();
@@ -183,9 +180,6 @@ async function loadProfile() {
   }
 }
 
-// ------------------------------------------------------------
-// 2. NAVEGAÇÃO ENTRE ABAS
-// ------------------------------------------------------------
 function setupNavigation() {
   document.querySelectorAll('.nav-link').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -246,13 +240,13 @@ function initAppFeatures() {
       const fileName = `feed_${Date.now()}.${fileExt}`;
       const filePath = `posts/${fileName}`;
 
-      const { error: uploadError } = await supabaseClient.storage.from('media 2').upload(filePath, file);
+      const { error: uploadError } = await supabaseClient.storage.from('imagens').upload(filePath, file);
       if (uploadError) {
         alert('Erro ao enviar imagem: ' + uploadError.message);
         return;
       }
 
-      const { data: urlData } = supabaseClient.storage.from('media 2').getPublicUrl(filePath);
+      const { data: urlData } = supabaseClient.storage.from('imagens').getPublicUrl(filePath);
       selectedPostFileUrl = urlData.publicUrl;
       alert('Imagem pronta para publicar!');
     };
@@ -322,9 +316,6 @@ function initAppFeatures() {
   }
 }
 
-// ------------------------------------------------------------
-// 3. MATÉRIAS E GERENCIAMENTO DETALHADO
-// ------------------------------------------------------------
 async function loadSubjects() {
   const subjectNav = document.getElementById('subjectNav');
   const subjectCards = document.getElementById('subjectCards');
@@ -455,13 +446,13 @@ async function loadSubjectDetails(subjectId) {
       const fileName = `sub_${Date.now()}.${fileExt}`;
       const filePath = `subjects/${fileName}`;
 
-      const { error: uploadError } = await supabaseClient.storage.from('media 2').upload(filePath, file);
+      const { error: uploadError } = await supabaseClient.storage.from('imagens').upload(filePath, file);
       if (uploadError) {
         alert('Erro ao enviar arquivo: ' + uploadError.message);
         return;
       }
 
-      const { data: urlData } = supabaseClient.storage.from('media 2').getPublicUrl(filePath);
+      const { data: urlData } = supabaseClient.storage.from('imagens').getPublicUrl(filePath);
       const url = urlData.publicUrl;
       const fileType = file.type.startsWith('image/') ? 'image' : 'file';
 
@@ -557,9 +548,6 @@ window.deleteTask = async function(taskId, subjectId = null) {
   }
 };
 
-// ------------------------------------------------------------
-// 4. TAREFAS
-// ------------------------------------------------------------
 async function loadTasks() {
   const upcoming = document.getElementById('upcoming');
   if (!upcoming) return;
@@ -610,9 +598,6 @@ async function loadAllTasksView() {
   });
 }
 
-// ------------------------------------------------------------
-// 5. POSTAGENS / FEED
-// ------------------------------------------------------------
 async function loadPosts() {
   const container = document.getElementById('postsList');
   if (!container) return;
@@ -716,9 +701,6 @@ window.deletePost = async function(postId) {
   }
 };
 
-// ------------------------------------------------------------
-// 6. GRUPOS E COMUNIDADES
-// ------------------------------------------------------------
 async function loadGroups() {
   if (messageSubscription) {
     supabaseClient.removeChannel(messageSubscription);
