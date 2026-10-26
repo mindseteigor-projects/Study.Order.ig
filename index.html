@@ -42,6 +42,7 @@
       <div class="side-label">NAVEGAÇÃO</div>
       <button class="side-action nav-link active" data-target="feedView">💬 Feed & Posts</button>
       <button class="side-action nav-link" data-target="dashboard">📚 Meus Estudos</button>
+      <button class="side-action nav-link" data-target="allTasksView">📅 Provas & Tarefas</button>
       <button class="side-action nav-link" data-target="groupsView">👥 Grupos & Comunidades</button>
       <button class="side-action nav-link" data-target="proView">⭐ Plano PRO (R$ 19,90)</button>
       
@@ -72,7 +73,7 @@
             <h2>O que você está estudando hoje?</h2>
             <textarea id="postContentInput" placeholder="Compartilhe uma dica, dúvida ou progresso..." style="width:100%; min-height:80px; background:#101017; color:white; border:1px solid #353542; border-radius:8px; padding:11px; margin-top:8px; outline:none;"></textarea>
             <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; gap:10px;">
-              <input type="text" id="postMediaInput" placeholder="URL opcional de imagem/vídeo" style="flex:1; background:#101017; color:white; border:1px solid #353542; border-radius:8px; padding:8px; outline:none;">
+              <input type="text" id="postMediaInput" placeholder="URL opcional de imagem (aparecerá direto no post)" style="flex:1; background:#101017; color:white; border:1px solid #353542; border-radius:8px; padding:8px; outline:none;">
               <button id="createPostBtn" class="primary">Publicar</button>
             </div>
           </div>
@@ -92,7 +93,7 @@
           <div class="stats" id="stats"></div>
           <div class="two-col">
             <div class="panel">
-              <div class="panel-head"><h2>Próximas provas e tarefas</h2><button id="allTasksBtn">Ver todas</button></div>
+              <div class="panel-head"><h2>Próximas provas e tarefas</h2><button id="allTasksBtn" class="nav-link" data-target="allTasksView">Ver todas</button></div>
               <div id="upcoming"></div>
             </div>
             <div class="panel">
@@ -145,8 +146,11 @@
         </div>
 
         <div id="allTasksView" class="view hidden">
-          <div class="page-title"><div><span class="eyebrow">AGENDA</span><h1>Provas e tarefas</h1></div></div>
-          <div id="allTasks"></div>
+          <div class="page-title">
+            <div><span class="eyebrow">AGENDA</span><h1>Provas, Lembretes e Tarefas</h1></div>
+            <button id="globalNewTaskBtn" class="primary">＋ Nova Tarefa</button>
+          </div>
+          <div id="globalTasksList"></div>
         </div>
       </section>
     </main>
