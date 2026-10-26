@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS DEFINITIVO E ESTÁVEL
+// STUDY ORDER — APP.JS DEFINITIVO E ESTÁVEL (COM IMAGENS INTEIRAS NO FEED)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -490,7 +490,7 @@ async function loadSubjectLinksAndFiles(subjectId) {
         if (f.type === 'image' || f.url.match(/\.(jpeg|jpg|png|gif|webp)$/i)) {
           previewHtml = `
             <div style="margin-bottom: 6px; font-weight: 500; font-size: 13px;">${escapeHtml(f.title)}</div>
-            <img src="${f.url}" style="width: 100%; max-height: 250px; object-fit: cover; border-radius: 8px; display: block;" onerror="this.style.display='none';">
+            <img src="${f.url}" style="width: 100%; max-height: 250px; object-fit: contain; background: #0b0b0f; border-radius: 8px; display: block;" onerror="this.style.display='none';">
           `;
         }
 
@@ -613,8 +613,8 @@ function renderPostCard(post) {
   let mediaRender = '';
   if (post.media_url && post.media_url.trim() !== '') {
     mediaRender = `
-      <div style="margin-top: 10px;">
-        <img src="${post.media_url}" style="width: 100%; max-height: 450px; object-fit: cover; border-radius: 8px; display: block;" 
+      <div style="margin-top: 12px; background: #0b0b0f; border-radius: 8px; overflow: hidden; display: flex; justify-content: center; align-items: center;">
+        <img src="${post.media_url}" style="width: 100%; max-height: 500px; object-fit: contain; display: block;" 
              onerror="this.outerHTML='<p style=\'color: #ef4444; font-size: 12px; margin-top: 5px;\'>⚠️ Não foi possível carregar a imagem. Verifique a permissão do Storage no Supabase.</p>';">
       </div>`;
   }
