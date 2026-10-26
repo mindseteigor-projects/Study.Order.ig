@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS (CONFIGURADO PARA O BUCKET "imagens")
+// STUDY ORDER — APP.JS DEFINITIVO (USANDO O BUCKET "imagens")
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
