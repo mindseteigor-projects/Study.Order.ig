@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS COMPLETO (REALTIME NO FEED E MATÉRIAS)
+// STUDY ORDER — APP.JS OTIMIZADO (UPLOAD REAL + REALTIME RÁPIDO)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -15,7 +15,8 @@ let activeAuthMode = 'login';
 let selectedSubjectId = null;
 let activeGroupId = null;
 let messageSubscription = null;
-let feedSubscription = null; // Subscrição do Realtime para o Feed
+let feedSubscription = null;
+let selectedPostFileUrl = null; // Guarda temporariamente a URL da imagem carregada no feed
 
 const MOTIVATIONAL_QUOTES = [
   "O sucesso é a soma de pequenos esforços repetidos dia após dia.",
@@ -193,24 +194,51 @@ function setupNavigation() {
 
 function initAppFeatures() {
   loadPosts();
-  setupRealtimeFeed(); // Ativa o tempo real no feed
+  setupRealtimeFeed();
   loadSubjects();
   loadTasks();
   loadGroups();
+
+  // Upload direto de imagem para o Feed
+  const postFileInput = document.getElementById('postFileInput');
+  if (postFileInput) {
+    postFileInput.onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      alert('A carregar imagem para o post...');
+      const fileExt = file.name.split('.').pop();
+      const fileName = `feed_${Date.now()}.${fileExt}`;
+      const filePath = `posts/${fileName}`;
+
+      const { error: uploadError } = await supabaseClient.storage.from('media').upload(filePath, file);
+      if (uploadError) {
+        alert('Erro ao enviar imagem: ' + uploadError.message);
+        return;
+      }
+
+      const { data: urlData } = supabaseClient.storage.from('media').getPublicUrl(filePath);
+      selectedPostFileUrl = urlData.publicUrl;
+      alert('Imagem pronta para publicar!');
+    };
+  }
 
   const createPostBtn = document.getElementById('createPostBtn');
   if (createPostBtn) {
     createPostBtn.onclick = async () => {
       const content = document.getElementById('postContentInput').value.trim();
-      const media_url = document.getElementById('postMediaInput').value.trim();
-      if (!content && !media_url) return;
+      const mediaInputUrl = document.getElementById('postMediaInput').value.trim();
+      const finalMediaUrl = selectedPostFileUrl || mediaInputUrl || null;
+
+      if (!content && !finalMediaUrl) return;
 
       await supabaseClient.from('posts').insert([
-        { user_id: currentUser.id, content, media_url: media_url || null, media_type: 'image' }
+        { user_id: currentUser.id, content, media_url: finalMediaUrl, media_type: 'image' }
       ]);
 
       document.getElementById('postContentInput').value = '';
       if (document.getElementById('postMediaInput')) document.getElementById('postMediaInput').value = '';
+      selectedPostFileUrl = null;
     };
   }
 
@@ -382,9 +410,9 @@ async function loadSubjectDetails(subjectId) {
       const file = e.target.files[0];
       if (!file) return;
 
-      alert('A carregar arquivo...');
+      alert('A carregar arquivo para o storage...');
       const fileExt = file.name.split('.').pop();
-      const fileName = `${Math.random()}.${fileExt}`;
+      const fileName = `sub_${Date.now()}.${fileExt}`;
       const filePath = `subjects/${fileName}`;
 
       const { error: uploadError } = await supabaseClient.storage.from('media').upload(filePath, file);
@@ -533,7 +561,7 @@ async function loadAllTasksView() {
 }
 
 // ------------------------------------------------------------
-// 5. POSTAGENS / FEED (COM TEMPO REAL ATIVO)
+// 5. POSTAGENS / FEED (COM TEMPO REAL OTIMIZADO)
 // ------------------------------------------------------------
 async function loadPosts() {
   const container = document.getElementById('postsList');
@@ -554,7 +582,6 @@ function renderPostCard(post) {
   const container = document.getElementById('postsList');
   if (!container) return;
 
-  // Evita duplicados se já estiver na lista
   const existingCard = document.getElementById(`post-${post.id}`);
   if (existingCard) existingCard.remove();
 
@@ -573,7 +600,7 @@ function renderPostCard(post) {
     mediaRender = `<img src="${post.media_url}" style="width: 100%; max-height: 450px; object-fit: cover; border-radius: 8px; display: block; margin-top: 10px;">`;
   }
 
-  const isMyPost = post.user_id === currentUser.id;
+  const isMyPost = currentUser && post.user_id === currentUser.id;
   let deleteBtnHtml = '';
   if (isMyPost) {
     deleteBtnHtml = `<button onclick="deletePost('${post.id}')" style="background: transparent; border: none; color: #ef4444; cursor: pointer; font-size: 12px; font-weight: bold;">Excluir</button>`;
@@ -588,7 +615,6 @@ function renderPostCard(post) {
     ${mediaRender}
   `;
 
-  // Adiciona sempre no topo para manter a ordem cronológica invertida
   container.prepend(card);
 }
 
@@ -598,13 +624,12 @@ function setupRealtimeFeed() {
   }
 
   feedSubscription = supabaseClient
-    .channel('public:posts')
+    .channel('public:posts_fast_sync')
     .on('postgres_changes', {
       event: 'INSERT',
       schema: 'public',
       table: 'posts'
     }, async (payload) => {
-      // Busca o username do autor do novo post
       const { data: profileData } = await supabaseClient
         .from('profiles')
         .select('username')
@@ -623,7 +648,6 @@ function setupRealtimeFeed() {
       schema: 'public',
       table: 'posts'
     }, (payload) => {
-      // Remove o post da tela imediatamente se alguém o apagar
       const cardToRemove = document.getElementById(`post-${payload.old.id}`);
       if (cardToRemove) cardToRemove.remove();
     })
