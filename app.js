@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS CORRIGIDO (LOGIN E REGISTO SEGUROS)
+// STUDY ORDER — APP.JS COMPLETO (COM IMAGENS CLICÁVEIS NAS MATÉRIAS)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -482,12 +482,18 @@ async function loadSubjectLinksAndFiles(subjectId) {
         const div = document.createElement('div');
         div.style.cssText = 'padding: 10px 0; border-bottom: 1px solid #262626;';
         
-        let previewHtml = `<a href="${f.url}" target="_blank" style="color: #38bdf8; text-decoration: none;">📄 ${escapeHtml(f.title)}</a>`;
+        let previewHtml = '';
         if (f.type === 'image' || f.url.match(/\.(jpeg|jpg|png|gif|webp)$/i)) {
           previewHtml = `
-            <div style="margin-bottom: 6px; font-weight: 500; font-size: 13px;">${escapeHtml(f.title)}</div>
-            <img src="${f.url}" style="width: 100%; height: auto; max-height: 350px; object-fit: cover; border-radius: 8px; display: block;" onerror="this.style.display='none';">
+            <div style="margin-bottom: 6px; font-weight: 500; font-size: 13px;">
+              <a href="${f.url}" target="_blank" style="color: #38bdf8; text-decoration: none;" title="Abrir imagem em tamanho real">🖼️ ${escapeHtml(f.title)} (Abrir)</a>
+            </div>
+            <a href="${f.url}" target="_blank" title="Clique para abrir a imagem em tamanho real">
+              <img src="${f.url}" style="width: 100%; max-height: 250px; object-fit: cover; border-radius: 8px; display: block; cursor: pointer;" onerror="this.style.display='none';">
+            </a>
           `;
+        } else {
+          previewHtml = `<a href="${f.url}" target="_blank" style="color: #38bdf8; text-decoration: none;">📄 ${escapeHtml(f.title)} (Baixar/Ver)</a>`;
         }
 
         div.innerHTML = `
@@ -815,26 +821,4 @@ function setupRealtimeChat(groupId) {
     .on('postgres_changes', {
       event: 'INSERT',
       schema: 'public',
-      table: 'group_messages',
-      filter: `group_id=eq.${groupId}`
-    }, async (payload) => {
-      const { data: profileData } = await supabaseClient
-        .from('profiles')
-        .select('username')
-        .eq('id', payload.new.user_id)
-        .single();
-
-      const fullMessage = {
-        ...payload.new,
-        profiles: profileData || { username: 'utilizador' }
-      };
-
-      appendMessageToChat(fullMessage);
-    })
-    .subscribe();
-}
-
-function escapeHtml(text) {
-  if (!text) return '';
-  return text.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
-}
+      table: 'group_
