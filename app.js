@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS COMPLETO (CORREÇÃO DE MATÉRIAS, TAREFAS E MÍDIA)
+// STUDY ORDER — APP.JS DEFINITIVO (MÍDIA DIRETA, EXCLUSÃO E ABA DE TAREFAS)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -171,6 +171,8 @@ function setupNavigation() {
 
       if (targetId === 'groupsView') {
         loadGroups();
+      } else if (targetId === 'allTasksView') {
+        loadAllTasksView();
       }
     });
   });
@@ -191,15 +193,16 @@ function initAppFeatures() {
   loadTasks();
   loadGroups();
 
+  // Criar Post com imagem visível diretamente
   const createPostBtn = document.getElementById('createPostBtn');
   if (createPostBtn) {
     createPostBtn.onclick = async () => {
       const content = document.getElementById('postContentInput').value.trim();
       const media_url = document.getElementById('postMediaInput').value.trim();
-      if (!content) return;
+      if (!content && !media_url) return;
 
       await supabaseClient.from('posts').insert([
-        { user_id: currentUser.id, content, media_url: media_url || null }
+        { user_id: currentUser.id, content, media_url: media_url || null, media_type: 'image' }
       ]);
 
       document.getElementById('postContentInput').value = '';
@@ -209,7 +212,7 @@ function initAppFeatures() {
   }
 
   const handleNewSubject = async () => {
-    const name = prompt('Nome da Matéria (ex: Matemática, Física, Biologia):');
+    const name = prompt('Nome da Matéria (ex: Matemática, Física):');
     if (!name) return;
 
     await supabaseClient.from('subjects').insert([{ user_id: currentUser.id, name }]);
@@ -229,6 +232,22 @@ function initAppFeatures() {
 
       await supabaseClient.from('groups').insert([{ user_id: currentUser.id, name }]);
       loadGroups();
+    };
+  }
+
+  // Botão global para criar tarefas na aba lateral de Tarefas
+  const globalNewTaskBtn = document.getElementById('globalNewTaskBtn');
+  if (globalNewTaskBtn) {
+    globalNewTaskBtn.onclick = async () => {
+      const title = prompt('Nome da prova, lembrete ou tarefa:');
+      if (!title) return;
+      const due_date = prompt('Data de entrega (AAAA-MM-DD):', new Date().toISOString().split('T')[0]);
+
+      await supabaseClient.from('tasks').insert([
+        { user_id: currentUser.id, title, due_date }
+      ]);
+      loadTasks();
+      loadAllTasksView();
     };
   }
 }
@@ -281,7 +300,6 @@ function openSubjectView(sub) {
 }
 
 async function loadSubjectDetails(subjectId) {
-  // Carregar notas da matéria
   const { data: subData } = await supabaseClient.from('subjects').select('notes').eq('id', subjectId).single();
   const notesArea = document.getElementById('notes');
   if (notesArea && subData) notesArea.value = subData.notes || '';
@@ -296,11 +314,28 @@ async function loadSubjectDetails(subjectId) {
     };
   }
 
+  // Excluir anotações (limpar)
+  let clearNoteBtn = document.getElementById('clearNoteBtn');
+  if (!clearNoteBtn && saveNoteBtn) {
+    clearNoteBtn = document.createElement('button');
+    clearNoteBtn.id = 'clearNoteBtn';
+    clearNoteBtn.textContent = 'Apagar notas';
+    clearNoteBtn.style.cssText = 'background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; margin-left: 8px; font-size: 12px;';
+    clearNoteBtn.onclick = async () => {
+      if (confirm('Deseja apagar todas as anotações desta matéria?')) {
+        notesArea.value = '';
+        await supabaseClient.from('subjects').update({ notes: '' }).eq('id', subjectId);
+        alert('Anotações apagadas!');
+      }
+    };
+    saveNoteBtn.parentNode.appendChild(clearNoteBtn);
+  }
+
   // Excluir matéria
   const deleteSubjectBtn = document.getElementById('deleteSubjectBtn');
   if (deleteSubjectBtn) {
     deleteSubjectBtn.onclick = async () => {
-      if (confirm('Tem certeza que deseja excluir esta matéria?')) {
+      if (confirm('Tem certeza que deseja excluir esta matéria e todo o seu conteúdo?')) {
         await supabaseClient.from('subjects').delete().eq('id', subjectId);
         document.querySelector('[data-target="dashboard"]').click();
         loadSubjects();
@@ -308,14 +343,14 @@ async function loadSubjectDetails(subjectId) {
     };
   }
 
-  // Criar Prova / Tarefa dentro da Matéria
+  // Criar Prova / Tarefa
   const handleNewTask = async () => {
-    const title = prompt('Nome da prova ou tarefa:');
+    const title = prompt('Nome da prova, lembrete ou tarefa:');
     if (!title) return;
     const due_date = prompt('Data de entrega (AAAA-MM-DD):', new Date().toISOString().split('T')[0]);
 
     await supabaseClient.from('tasks').insert([
-      { user_id: currentUser.id, title, due_date }
+      { user_id: currentUser.id, subject_id: subjectId, title, due_date }
     ]);
     loadSubjectDetails(subjectId);
     loadTasks();
@@ -326,10 +361,10 @@ async function loadSubjectDetails(subjectId) {
   if (newTaskBtn) newTaskBtn.onclick = handleNewTask;
   if (newTaskBtn2) newTaskBtn2.onclick = handleNewTask;
 
-  // Carregar tarefas associadas
+  // Carregar tarefas da matéria com opção de exclusão
   const tasksContainer = document.getElementById('tasks');
   if (tasksContainer) {
-    const { data: tasks } = await supabaseClient.from('tasks').select('*').eq('user_id', currentUser.id);
+    const { data: tasks } = await supabaseClient.from('tasks').select('*').eq('subject_id', subjectId);
     tasksContainer.innerHTML = '';
     if (!tasks || tasks.length === 0) {
       tasksContainer.innerHTML = '<small style="color: #737373;">Nenhuma tarefa pendente.</small>';
@@ -337,7 +372,10 @@ async function loadSubjectDetails(subjectId) {
       tasks.forEach(task => {
         const div = document.createElement('div');
         div.style.cssText = 'padding: 8px 0; border-bottom: 1px solid #262626; font-size: 13px; display:flex; justify-content:space-between; align-items:center;';
-        div.innerHTML = `<span>${escapeHtml(task.title)}</span> <small style="color:var(--accent);">${task.due_date || ''}</small>`;
+        div.innerHTML = `
+          <span><b>${escapeHtml(task.title)}</b> <small style="color:var(--accent);">(${task.due_date || 'Sem data'})</small></span>
+          <button onclick="deleteTask('${task.id}', '${subjectId}')" style="background:transparent; border:none; color:#ef4444; cursor:pointer; font-size:14px;" title="Excluir tarefa">✕</button>
+        `;
         tasksContainer.appendChild(div);
       });
     }
@@ -354,6 +392,37 @@ async function loadSubjectDetails(subjectId) {
       await supabaseClient.from('subject_contents').insert([
         { subject_id: subjectId, user_id: currentUser.id, title, type: url.includes('youtube') ? 'video' : 'link', url, content: title }
       ]);
+      loadSubjectLinksAndFiles(subjectId);
+    };
+  }
+
+  // Upload de Mídia / Arquivos (com visualização direta de imagem)
+  const fileInput = document.getElementById('fileInput');
+  if (fileInput) {
+    fileInput.onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      alert('A carregar arquivo...');
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Math.random()}.${fileExt}`;
+      const filePath = `subjects/${fileName}`;
+
+      const { error: uploadError } = await supabaseClient.storage.from('media').upload(filePath, file);
+      if (uploadError) {
+        alert('Erro ao enviar arquivo: ' + uploadError.message);
+        return;
+      }
+
+      const { data: urlData } = supabaseClient.storage.from('media').getPublicUrl(filePath);
+      const url = urlData.publicUrl;
+      const fileType = file.type.startsWith('image/') ? 'image' : 'file';
+
+      await supabaseClient.from('subject_contents').insert([
+        { subject_id: subjectId, user_id: currentUser.id, title: file.name, type: fileType, url, content: file.name }
+      ]);
+
+      alert('Arquivo enviado com sucesso!');
       loadSubjectLinksAndFiles(subjectId);
     };
   }
@@ -375,8 +444,11 @@ async function loadSubjectLinksAndFiles(subjectId) {
     } else {
       links.forEach(l => {
         const div = document.createElement('div');
-        div.style.cssText = 'padding: 6px 0; font-size: 13px; border-bottom: 1px solid #262626;';
-        div.innerHTML = `<a href="${l.url}" target="_blank" style="color: var(--accent); text-decoration: none;">🔗 ${escapeHtml(l.title)}</a>`;
+        div.style.cssText = 'padding: 6px 0; font-size: 13px; border-bottom: 1px solid #262626; display:flex; justify-content:space-between; align-items:center;';
+        div.innerHTML = `
+          <a href="${l.url}" target="_blank" style="color: var(--accent); text-decoration: none;">🔗 ${escapeHtml(l.title)}</a>
+          <button onclick="deleteContent('${l.id}', '${subjectId}')" style="background:transparent; border:none; color:#ef4444; cursor:pointer;" title="Excluir">✕</button>
+        `;
         linksContainer.appendChild(div);
       });
     }
@@ -384,22 +456,156 @@ async function loadSubjectLinksAndFiles(subjectId) {
 
   if (filesContainer) {
     filesContainer.innerHTML = '';
-    const files = contents?.filter(c => c.type === 'file') || [];
+    const files = contents?.filter(c => c.type === 'file' || c.type === 'image') || [];
     if (files.length === 0) {
       filesContainer.innerHTML = '<small style="color: #737373;">Nenhum arquivo enviado.</small>';
     } else {
       files.forEach(f => {
         const div = document.createElement('div');
-        div.style.cssText = 'padding: 6px 0; font-size: 13px; border-bottom: 1px solid #262626;';
-        div.innerHTML = `<a href="${f.url}" target="_blank" style="color: #38bdf8; text-decoration: none;">📄 ${escapeHtml(f.title)}</a>`;
+        div.style.cssText = 'padding: 10px 0; border-bottom: 1px solid #262626;';
+        
+        let previewHtml = `<a href="${f.url}" target="_blank" style="color: #38bdf8; text-decoration: none;">📄 ${escapeHtml(f.title)}</a>`;
+        if (f.type === 'image' || f.url.match(/\.(jpeg|jpg|png|gif|webp)$/i)) {
+          previewHtml = `
+            <div style="margin-bottom: 6px; font-weight: 500; font-size: 13px;">${escapeHtml(f.title)}</div>
+            <img src="${f.url}" style="width: 100%; max-height: 250px; object-fit: cover; border-radius: 8px; display: block;">
+          `;
+        }
+
+        div.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div style="flex:1; margin-right: 10px;">${previewHtml}</div>
+            <button onclick="deleteContent('${f.id}', '${subjectId}')" style="background:transparent; border:none; color:#ef4444; cursor:pointer;" title="Excluir arquivo">✕</button>
+          </div>
+        `;
         filesContainer.appendChild(div);
       });
     }
   }
 }
 
+window.deleteContent = async function(contentId, subjectId) {
+  if (confirm('Deseja excluir este item?')) {
+    await supabaseClient.from('subject_contents').delete().eq('id', contentId);
+    loadSubjectLinksAndFiles(subjectId);
+  }
+};
+
+window.deleteTask = async function(taskId, subjectId = null) {
+  if (confirm('Deseja excluir esta tarefa?')) {
+    await supabaseClient.from('tasks').delete().eq('id', taskId);
+    loadTasks();
+    if (subjectId) loadSubjectDetails(subjectId);
+    loadAllTasksView();
+  }
+};
+
 // ------------------------------------------------------------
-// 4. GRUPOS E COMUNIDADES (COM REALTIME)
+// 4. TAREFAS (ABA LATERAL DEDICADA)
+// ------------------------------------------------------------
+async function loadTasks() {
+  const upcoming = document.getElementById('upcoming');
+  if (!upcoming) return;
+
+  const { data: tasks } = await supabaseClient.from('tasks').select('*').eq('user_id', currentUser.id).limit(5);
+  upcoming.innerHTML = '';
+
+  if (!tasks || tasks.length === 0) {
+    upcoming.innerHTML = '<p style="color: #737373; font-size: 13px;">Nenhuma tarefa agendada.</p>';
+    return;
+  }
+
+  tasks.forEach(t => {
+    const item = document.createElement('div');
+    item.style.cssText = 'padding: 10px 0; border-bottom: 1px solid #262626; font-size: 13px; display:flex; justify-content:space-between; align-items:center;';
+    item.innerHTML = `
+      <div><b>${escapeHtml(t.title)}</b></div>
+      <span style="color: var(--accent);">${t.due_date || ''}</span>
+    `;
+    upcoming.appendChild(item);
+  });
+}
+
+async function loadAllTasksView() {
+  const container = document.getElementById('globalTasksList');
+  if (!container) return;
+
+  const { data: tasks } = await supabaseClient.from('tasks').select('*').eq('user_id', currentUser.id).order('due_date', { ascending: true });
+  container.innerHTML = '';
+
+  if (!tasks || tasks.length === 0) {
+    container.innerHTML = '<p style="color: #737373; padding: 20px;">Nenhuma prova ou tarefa registada.</p>';
+    return;
+  }
+
+  tasks.forEach(task => {
+    const card = document.createElement('div');
+    card.className = 'panel';
+    card.style.cssText = 'margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;';
+    card.innerHTML = `
+      <div>
+        <h3 style="color: var(--accent); margin-bottom: 4px; font-size: 15px;">${escapeHtml(task.title)}</h3>
+        <p style="font-size: 12px; color: #a8a8a8; margin: 0;">Data de Entrega / Prova: <b>${task.due_date || 'Não definida'}</b></p>
+      </div>
+      <button onclick="deleteTask('${task.id}')" style="background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;">Excluir</button>
+    `;
+    container.appendChild(card);
+  });
+}
+
+// ------------------------------------------------------------
+// 5. POSTAGENS / FEED (COM IMAGEM DIRETA E EXCLUSÃO DO AUTOR)
+// ------------------------------------------------------------
+async function loadPosts() {
+  const container = document.getElementById('postsList');
+  if (!container) return;
+
+  const { data: posts } = await supabaseClient.from('posts').select(`*, profiles:user_id (username)`).order('created_at', { ascending: false });
+  container.innerHTML = '';
+
+  if (!posts || posts.length === 0) {
+    container.innerHTML = '<p style="text-align: center; color: #737373; padding: 40px 0;">Nenhuma publicação ainda.</p>';
+    return;
+  }
+
+  posts.forEach(post => {
+    const card = document.createElement('div');
+    card.className = 'panel';
+    card.style.marginBottom = '14px';
+
+    let mediaRender = '';
+    if (post.media_url) {
+      // Exibe a imagem diretamente e de forma visível
+      mediaRender = `<img src="${post.media_url}" style="width: 100%; max-height: 450px; object-fit: cover; border-radius: 8px; display: block; margin-top: 10px;">`;
+    }
+
+    const isMyPost = post.user_id === currentUser.id;
+    let deleteBtnHtml = '';
+    if (isMyPost) {
+      deleteBtnHtml = `<button onclick="deletePost('${post.id}')" style="background: transparent; border: none; color: #ef4444; cursor: pointer; font-size: 12px; font-weight: bold;">Excluir</button>`;
+    }
+
+    card.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+        <span style="font-weight: 600; color: var(--accent);">@${post.profiles?.username || 'utilizador'}</span>
+        ${deleteBtnHtml}
+      </div>
+      <div style="font-size: 14px; line-height: 1.4;">${escapeHtml(post.content)}</div>
+      ${mediaRender}
+    `;
+    container.appendChild(card);
+  });
+}
+
+window.deletePost = async function(postId) {
+  if (confirm('Tem certeza que deseja excluir esta publicação?')) {
+    await supabaseClient.from('posts').delete().eq('id', postId);
+    loadPosts();
+  }
+};
+
+// ------------------------------------------------------------
+// 6. GRUPOS E COMUNIDADES
 // ------------------------------------------------------------
 async function loadGroups() {
   if (messageSubscription) {
@@ -555,60 +761,6 @@ function setupRealtimeChat(groupId) {
       appendMessageToChat(fullMessage);
     })
     .subscribe();
-}
-
-// ------------------------------------------------------------
-// 5. TAREFAS E FEED
-// ------------------------------------------------------------
-async function loadTasks() {
-  const upcoming = document.getElementById('upcoming');
-  if (!upcoming) return;
-
-  const { data: tasks } = await supabaseClient.from('tasks').select('*').eq('user_id', currentUser.id).limit(5);
-  upcoming.innerHTML = '';
-
-  if (!tasks || tasks.length === 0) {
-    upcoming.innerHTML = '<p style="color: #737373; font-size: 13px;">Nenhuma tarefa agendada.</p>';
-    return;
-  }
-
-  tasks.forEach(t => {
-    const item = document.createElement('div');
-    item.style.cssText = 'padding: 10px 0; border-bottom: 1px solid #262626; font-size: 13px; display:flex; justify-content:space-between;';
-    item.innerHTML = `<b>${escapeHtml(t.title)}</b> <span style="color: var(--accent);">${t.due_date || ''}</span>`;
-    upcoming.appendChild(item);
-  });
-}
-
-async function loadPosts() {
-  const container = document.getElementById('postsList');
-  if (!container) return;
-
-  const { data: posts } = await supabaseClient.from('posts').select(`*, profiles:user_id (username)`).order('created_at', { ascending: false });
-  container.innerHTML = '';
-
-  if (!posts || posts.length === 0) {
-    container.innerHTML = '<p style="text-align: center; color: #737373; padding: 40px 0;">Nenhuma publicação ainda.</p>';
-    return;
-  }
-
-  posts.forEach(post => {
-    const card = document.createElement('div');
-    card.className = 'panel';
-    card.style.marginBottom = '14px';
-
-    let mediaRender = '';
-    if (post.media_url) {
-      mediaRender = `<img src="${post.media_url}" style="width: 100%; max-height: 400px; object-fit: cover; border-radius: 8px; margin-top: 10px;">`;
-    }
-
-    card.innerHTML = `
-      <div style="font-weight: 600; margin-bottom: 6px; color: var(--accent);">@${post.profiles?.username || 'utilizador'}</div>
-      <div style="font-size: 14px; line-height: 1.4;">${escapeHtml(post.content)}</div>
-      ${mediaRender}
-    `;
-    container.appendChild(card);
-  });
 }
 
 function escapeHtml(text) {
