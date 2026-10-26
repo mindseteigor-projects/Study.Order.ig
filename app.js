@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS DEFINITIVO (MÍDIA DIRETA, EXCLUSÃO E ABA DE TAREFAS)
+// STUDY ORDER — APP.JS COMPLETO (REALTIME NO FEED E MATÉRIAS)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -15,6 +15,7 @@ let activeAuthMode = 'login';
 let selectedSubjectId = null;
 let activeGroupId = null;
 let messageSubscription = null;
+let feedSubscription = null; // Subscrição do Realtime para o Feed
 
 const MOTIVATIONAL_QUOTES = [
   "O sucesso é a soma de pequenos esforços repetidos dia após dia.",
@@ -173,6 +174,8 @@ function setupNavigation() {
         loadGroups();
       } else if (targetId === 'allTasksView') {
         loadAllTasksView();
+      } else if (targetId === 'feedView') {
+        loadPosts();
       }
     });
   });
@@ -181,6 +184,7 @@ function setupNavigation() {
   if (logoutBtn) {
     logoutBtn.onclick = async () => {
       if (messageSubscription) supabaseClient.removeChannel(messageSubscription);
+      if (feedSubscription) supabaseClient.removeChannel(feedSubscription);
       await supabaseClient.auth.signOut();
       location.reload();
     };
@@ -189,11 +193,11 @@ function setupNavigation() {
 
 function initAppFeatures() {
   loadPosts();
+  setupRealtimeFeed(); // Ativa o tempo real no feed
   loadSubjects();
   loadTasks();
   loadGroups();
 
-  // Criar Post com imagem visível diretamente
   const createPostBtn = document.getElementById('createPostBtn');
   if (createPostBtn) {
     createPostBtn.onclick = async () => {
@@ -207,7 +211,6 @@ function initAppFeatures() {
 
       document.getElementById('postContentInput').value = '';
       if (document.getElementById('postMediaInput')) document.getElementById('postMediaInput').value = '';
-      loadPosts();
     };
   }
 
@@ -235,7 +238,6 @@ function initAppFeatures() {
     };
   }
 
-  // Botão global para criar tarefas na aba lateral de Tarefas
   const globalNewTaskBtn = document.getElementById('globalNewTaskBtn');
   if (globalNewTaskBtn) {
     globalNewTaskBtn.onclick = async () => {
@@ -304,7 +306,6 @@ async function loadSubjectDetails(subjectId) {
   const notesArea = document.getElementById('notes');
   if (notesArea && subData) notesArea.value = subData.notes || '';
 
-  // Salvar anotações
   const saveNoteBtn = document.getElementById('saveNoteBtn');
   if (saveNoteBtn) {
     saveNoteBtn.onclick = async () => {
@@ -314,24 +315,6 @@ async function loadSubjectDetails(subjectId) {
     };
   }
 
-  // Excluir anotações (limpar)
-  let clearNoteBtn = document.getElementById('clearNoteBtn');
-  if (!clearNoteBtn && saveNoteBtn) {
-    clearNoteBtn = document.createElement('button');
-    clearNoteBtn.id = 'clearNoteBtn';
-    clearNoteBtn.textContent = 'Apagar notas';
-    clearNoteBtn.style.cssText = 'background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; margin-left: 8px; font-size: 12px;';
-    clearNoteBtn.onclick = async () => {
-      if (confirm('Deseja apagar todas as anotações desta matéria?')) {
-        notesArea.value = '';
-        await supabaseClient.from('subjects').update({ notes: '' }).eq('id', subjectId);
-        alert('Anotações apagadas!');
-      }
-    };
-    saveNoteBtn.parentNode.appendChild(clearNoteBtn);
-  }
-
-  // Excluir matéria
   const deleteSubjectBtn = document.getElementById('deleteSubjectBtn');
   if (deleteSubjectBtn) {
     deleteSubjectBtn.onclick = async () => {
@@ -343,7 +326,6 @@ async function loadSubjectDetails(subjectId) {
     };
   }
 
-  // Criar Prova / Tarefa
   const handleNewTask = async () => {
     const title = prompt('Nome da prova, lembrete ou tarefa:');
     if (!title) return;
@@ -361,7 +343,6 @@ async function loadSubjectDetails(subjectId) {
   if (newTaskBtn) newTaskBtn.onclick = handleNewTask;
   if (newTaskBtn2) newTaskBtn2.onclick = handleNewTask;
 
-  // Carregar tarefas da matéria com opção de exclusão
   const tasksContainer = document.getElementById('tasks');
   if (tasksContainer) {
     const { data: tasks } = await supabaseClient.from('tasks').select('*').eq('subject_id', subjectId);
@@ -381,7 +362,6 @@ async function loadSubjectDetails(subjectId) {
     }
   }
 
-  // Adicionar Link ou Vídeo
   const newLinkBtn = document.getElementById('newLinkBtn');
   if (newLinkBtn) {
     newLinkBtn.onclick = async () => {
@@ -396,7 +376,6 @@ async function loadSubjectDetails(subjectId) {
     };
   }
 
-  // Upload de Mídia / Arquivos (com visualização direta de imagem)
   const fileInput = document.getElementById('fileInput');
   if (fileInput) {
     fileInput.onchange = async (e) => {
@@ -501,7 +480,7 @@ window.deleteTask = async function(taskId, subjectId = null) {
 };
 
 // ------------------------------------------------------------
-// 4. TAREFAS (ABA LATERAL DEDICADA)
+// 4. TAREFAS
 // ------------------------------------------------------------
 async function loadTasks() {
   const upcoming = document.getElementById('upcoming');
@@ -554,7 +533,7 @@ async function loadAllTasksView() {
 }
 
 // ------------------------------------------------------------
-// 5. POSTAGENS / FEED (COM IMAGEM DIRETA E EXCLUSÃO DO AUTOR)
+// 5. POSTAGENS / FEED (COM TEMPO REAL ATIVO)
 // ------------------------------------------------------------
 async function loadPosts() {
   const container = document.getElementById('postsList');
@@ -568,39 +547,92 @@ async function loadPosts() {
     return;
   }
 
-  posts.forEach(post => {
-    const card = document.createElement('div');
-    card.className = 'panel';
-    card.style.marginBottom = '14px';
+  posts.forEach(post => renderPostCard(post));
+}
 
-    let mediaRender = '';
-    if (post.media_url) {
-      // Exibe a imagem diretamente e de forma visível
-      mediaRender = `<img src="${post.media_url}" style="width: 100%; max-height: 450px; object-fit: cover; border-radius: 8px; display: block; margin-top: 10px;">`;
-    }
+function renderPostCard(post) {
+  const container = document.getElementById('postsList');
+  if (!container) return;
 
-    const isMyPost = post.user_id === currentUser.id;
-    let deleteBtnHtml = '';
-    if (isMyPost) {
-      deleteBtnHtml = `<button onclick="deletePost('${post.id}')" style="background: transparent; border: none; color: #ef4444; cursor: pointer; font-size: 12px; font-weight: bold;">Excluir</button>`;
-    }
+  // Evita duplicados se já estiver na lista
+  const existingCard = document.getElementById(`post-${post.id}`);
+  if (existingCard) existingCard.remove();
 
-    card.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-        <span style="font-weight: 600; color: var(--accent);">@${post.profiles?.username || 'utilizador'}</span>
-        ${deleteBtnHtml}
-      </div>
-      <div style="font-size: 14px; line-height: 1.4;">${escapeHtml(post.content)}</div>
-      ${mediaRender}
-    `;
-    container.appendChild(card);
-  });
+  const emptyMsg = container.querySelector('p');
+  if (emptyMsg && emptyMsg.textContent.includes('Nenhuma publicação')) {
+    emptyMsg.remove();
+  }
+
+  const card = document.createElement('div');
+  card.className = 'panel';
+  card.id = `post-${post.id}`;
+  card.style.marginBottom = '14px';
+
+  let mediaRender = '';
+  if (post.media_url) {
+    mediaRender = `<img src="${post.media_url}" style="width: 100%; max-height: 450px; object-fit: cover; border-radius: 8px; display: block; margin-top: 10px;">`;
+  }
+
+  const isMyPost = post.user_id === currentUser.id;
+  let deleteBtnHtml = '';
+  if (isMyPost) {
+    deleteBtnHtml = `<button onclick="deletePost('${post.id}')" style="background: transparent; border: none; color: #ef4444; cursor: pointer; font-size: 12px; font-weight: bold;">Excluir</button>`;
+  }
+
+  card.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+      <span style="font-weight: 600; color: var(--accent);">@${post.profiles?.username || 'utilizador'}</span>
+      ${deleteBtnHtml}
+    </div>
+    <div style="font-size: 14px; line-height: 1.4;">${escapeHtml(post.content)}</div>
+    ${mediaRender}
+  `;
+
+  // Adiciona sempre no topo para manter a ordem cronológica invertida
+  container.prepend(card);
+}
+
+function setupRealtimeFeed() {
+  if (feedSubscription) {
+    supabaseClient.removeChannel(feedSubscription);
+  }
+
+  feedSubscription = supabaseClient
+    .channel('public:posts')
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'posts'
+    }, async (payload) => {
+      // Busca o username do autor do novo post
+      const { data: profileData } = await supabaseClient
+        .from('profiles')
+        .select('username')
+        .eq('id', payload.new.user_id)
+        .single();
+
+      const fullPost = {
+        ...payload.new,
+        profiles: profileData || { username: 'utilizador' }
+      };
+
+      renderPostCard(fullPost);
+    })
+    .on('postgres_changes', {
+      event: 'DELETE',
+      schema: 'public',
+      table: 'posts'
+    }, (payload) => {
+      // Remove o post da tela imediatamente se alguém o apagar
+      const cardToRemove = document.getElementById(`post-${payload.old.id}`);
+      if (cardToRemove) cardToRemove.remove();
+    })
+    .subscribe();
 }
 
 window.deletePost = async function(postId) {
   if (confirm('Tem certeza que deseja excluir esta publicação?')) {
     await supabaseClient.from('posts').delete().eq('id', postId);
-    loadPosts();
   }
 };
 
