@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS COMPLETO (COM IMAGENS CLICÁVEIS NAS MATÉRIAS)
+// STUDY ORDER — APP.JS DEFINITIVO (BLINDADO CONTRA TRAVAMENTOS DE LOGIN)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -18,15 +18,8 @@ let messageSubscription = null;
 let feedSubscription = null;
 let selectedPostFileUrl = null;
 
-const MOTIVATIONAL_QUOTES = [
-  "O sucesso é a soma de pequenos esforços repetidos dia após dia.",
-  "Estudar não é acumular memória, é expandir a mente.",
-  "A disciplina é a ponte entre seus objetivos e suas realizações.",
-  "Acredite no seu processo. Cada hora de estudo conta!"
-];
-
 // ------------------------------------------------------------
-// 1. AUTENTICAÇÃO E SESSÃO
+// 1. AUTENTICAÇÃO E SESSÃO SEGURA
 // ------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
   setupAuthTabs();
@@ -101,9 +94,13 @@ function setupAuthForm() {
         if (error) throw error;
 
         if (data?.user) {
-          await supabaseClient.from('profiles').upsert([
-            { id: data.user.id, username, updated_at: new Date() }
-          ]);
+          try {
+            await supabaseClient.from('profiles').upsert([
+              { id: data.user.id, username, updated_at: new Date() }
+            ]);
+          } catch (pErr) {
+            console.warn("Aviso ao criar perfil inicial:", pErr);
+          }
         }
 
         alert('Conta criada com sucesso! Faça login.');
@@ -112,11 +109,18 @@ function setupAuthForm() {
         const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
         if (error) throw error;
         
-        await checkUser();
+        if (data?.session) {
+          currentUser = data.session.user;
+          showAppScreen();
+          loadProfile();
+          initAppFeatures();
+        } else {
+          await checkUser();
+        }
       }
     } catch (err) {
       console.error("Erro na autenticação:", err);
-      if (authMsg) authMsg.textContent = 'Erro: ' + (err.message || 'Falha na operação.');
+      if (authMsg) authMsg.textContent = 'Erro: ' + (err.message || 'Falha na autenticação.');
     }
   };
 }
@@ -126,32 +130,50 @@ async function checkUser() {
     const { data: { session }, error } = await supabaseClient.auth.getSession();
     if (error) throw error;
 
-    const authScreen = document.getElementById('authScreen');
-    const appScreen = document.getElementById('app');
-
-    if (session) {
+    if (session && session.user) {
       currentUser = session.user;
-      await loadProfile();
-      if (authScreen) authScreen.classList.add('hidden');
-      if (appScreen) appScreen.classList.remove('hidden');
-      
-      const userEmailEl = document.getElementById('userEmail');
-      if (userEmailEl) userEmailEl.textContent = currentUser.email;
-
+      showAppScreen();
+      loadProfile();
       initAppFeatures();
     } else {
-      if (authScreen) authScreen.classList.remove('hidden');
-      if (appScreen) appScreen.classList.add('hidden');
+      showAuthScreen();
     }
   } catch (err) {
     console.error("Erro ao verificar sessão:", err);
+    showAuthScreen();
   }
+}
+
+function showAppScreen() {
+  const authScreen = document.getElementById('authScreen');
+  const appScreen = document.getElementById('app');
+  if (authScreen) authScreen.classList.add('hidden');
+  if (appScreen) appScreen.classList.remove('hidden');
+
+  const userEmailEl = document.getElementById('userEmail');
+  if (userEmailEl && currentUser) userEmailEl.textContent = currentUser.email;
+}
+
+function showAuthScreen() {
+  const authScreen = document.getElementById('authScreen');
+  const appScreen = document.getElementById('app');
+  if (authScreen) authScreen.classList.remove('hidden');
+  if (appScreen) appScreen.classList.add('hidden');
 }
 
 async function loadProfile() {
   if (!currentUser) return;
-  const { data } = await supabaseClient.from('profiles').select('*').eq('id', currentUser.id).single();
-  if (data) currentProfile = data;
+  try {
+    const { data } = await supabaseClient.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
+    if (data) {
+      currentProfile = data;
+    } else {
+      currentProfile = { id: currentUser.id, username: currentUser.email.split('@')[0] };
+    }
+  } catch (err) {
+    console.warn("Erro ao carregar perfil:", err);
+    currentProfile = { id: currentUser.id, username: currentUser.email.split('@')[0] };
+  }
 }
 
 // ------------------------------------------------------------
@@ -578,7 +600,7 @@ async function loadAllTasksView() {
 }
 
 // ------------------------------------------------------------
-// 5. POSTAGENS / FEED (COM TEMPO REAL OTIMIZADO)
+// 5. POSTAGENS / FEED
 // ------------------------------------------------------------
 async function loadPosts() {
   const container = document.getElementById('postsList');
@@ -655,7 +677,7 @@ function setupRealtimeFeed() {
         .from('profiles')
         .select('username')
         .eq('id', payload.new.user_id)
-        .single();
+        .maybeSingle();
 
       const fullPost = {
         ...payload.new,
@@ -821,4 +843,26 @@ function setupRealtimeChat(groupId) {
     .on('postgres_changes', {
       event: 'INSERT',
       schema: 'public',
-      table: 'group_
+      table: 'group_messages',
+      filter: `group_id=eq.${groupId}`
+    }, async (payload) => {
+      const { data: profileData } = await supabaseClient
+        .from('profiles')
+        .select('username')
+        .eq('id', payload.new.user_id)
+        .maybeSingle();
+
+      const fullMessage = {
+        ...payload.new,
+        profiles: profileData || { username: 'utilizador' }
+      };
+
+      appendMessageToChat(fullMessage);
+    })
+    .subscribe();
+}
+
+function escapeHtml(text) {
+  if (!text) return '';
+  return text.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+}
