@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Study Order — Rede Social de Estudos</title>
   <link rel="stylesheet" href="style.css">
+  <!-- Biblioteca TOTP / Authy para validação 2FA real -->
+  <script src="https://cdn.jsdelivr.net/npm/otplib@12.0.1/browser.js"></script>
 </head>
 <body>
   <!-- Tela de Autenticação / Registo -->
@@ -55,7 +57,6 @@
       <nav id="subjectNav"></nav>
 
       <div class="side-bottom">
-        <button id="adminPanelBtn" class="side-action hidden" style="color: var(--accent);">🛠️ Painel Admin</button>
         <button id="logoutBtn" class="side-action">↪ Sair</button>
       </div>
     </aside>

@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS (PAINEL ADMIN OCULTO COM 2FA & SENHA)
+// STUDY ORDER — APP.JS (COM AUTENTICAÇÃO 2FA / AUTHY REAL)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -21,18 +21,18 @@ let subjectContentsSubscription = null;
 let selectedPostFileUrl = null;
 let isAdminAuthenticated = false;
 
-// DEFINA A SUA SENHA MASTER DE ADMIN E O SEGREDO DO AUTHY/TOTP
-const MASTER_ADMIN_PASS = "admin123"; // Altere para a sua senha de acesso ao painel
+// Segredo mestre do TOTP/Authy (Guarde este segredo no seu Authy / Google Authenticator)
+// Na prática, pode ser configurado e guardado na tabela 'profiles' do Supabase.
+const MASTER_TOTP_SECRET = "JBSWY3DPEHPK3PXP"; 
 
 document.addEventListener('DOMContentLoaded', () => {
   setupAuthTabs();
   setupAuthForm();
   checkUser();
   setupNavigation();
-  setupSecretAdminShortcut(); // Atalho oculto de teclado
+  setupSecretAdminShortcut();
 });
 
-// ATALHO SECRETO: Ctrl + Shift + A para abrir o login de Admin
 function setupSecretAdminShortcut() {
   document.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'a') {
@@ -40,55 +40,60 @@ function setupSecretAdminShortcut() {
       promptAdminAccess();
     }
   });
-
-  // Disponibiliza função global para aceder via URL/Console: window.openAdmin()
   window.openAdmin = promptAdminAccess;
 }
 
-// FLUXO DE AUTENTICAÇÃO COM SENHA E VERIFICAÇÃO AUTHY / TOTP
+// ACESSO ADMIN COM 2FA REAL (AUTHY / TOTP)
 async function promptAdminAccess() {
   if (!currentUser || !currentProfile || currentProfile.role !== 'admin') {
-    alert('Acesso negado. Apenas o administrador autenticado pode aceder.');
+    alert('Acesso negado. Apenas administradores autenticados.');
     return;
   }
 
-  // Se já autenticou o 2FA nesta sessão, abre direto
   if (isAdminAuthenticated) {
     renderAdminView();
     return;
   }
 
-  // 1. Solicita a Senha de Admin
-  const pass = prompt('🔐 [ACESSO ADMIN] Digite a Senha Master:');
+  // 1. Senha Master de Administração
+  const pass = prompt('🔐 [ADMIN MASTER] Insira a sua palavra-passe de administrador:');
   if (!pass) return;
 
-  if (pass !== MASTER_ADMIN_PASS) {
-    alert('❌ Senha incorreta! Acesso negado.');
+  // Substitua 'admin123' pela sua senha forte desejada
+  if (pass !== 'admin123') {
+    alert('❌ Palavra-passe incorreta!');
     return;
   }
 
-  // 2. Solicita o Código de Verificação do Authy / 2FA
-  const authyCode = prompt('📱 [VERIFICAÇÃO AUTHY] Digite o código de 6 dígitos do seu app Authy:');
-  if (!authyCode || authyCode.trim().length !== 6) {
-    alert('❌ Código Authy inválido ou não informado.');
+  // 2. Verificação Real do Código Authy / TOTP (6 dígitos)
+  const token = prompt('📱 [AUTHY 2FA] Insira o código de 6 dígitos gerado no seu aplicativo Authy / Google Authenticator:');
+  if (!token || token.trim().length !== 6) {
+    alert('❌ Código de verificação inválido.');
     return;
   }
 
-  // Validação simples do token temporário (Simulação TOTP / Authy)
-  // Nota: Em produção de alta segurança, valide o secret via Supabase Edge Function.
-  if (verifyAuthyToken(authyCode.trim())) {
-    isAdminAuthenticated = true;
-    alert('✅ Autenticação 2FA concluída com sucesso!');
-    renderAdminView();
-  } else {
-    alert('❌ Código Authy incorreto ou expirado!');
-  }
-}
+  try {
+    // Validação real usando a biblioteca otplib integrada no navegador
+    // Se não tiver o otplib carregado no HTML, avisa o utilizador.
+    if (typeof window.otplib === 'undefined') {
+      alert('Erro: Biblioteca TOTP não carregada. Verifique a tag script no index.html.');
+      return;
+    }
 
-// Validador de Código Authy (Aceita o token válido do ciclo atual)
-function verifyAuthyToken(code) {
-  // Para testes e integração inicial com o app Authy, o código deve ser numérico
-  return /^\d{6}$/.test(code);
+    window.otplib.authenticator.options = { window: 1 }; // Aceita margem de 30s de atraso de relógio
+    const isValid = window.otplib.authenticator.check(token.trim(), MASTER_TOTP_SECRET);
+
+    if (isValid) {
+      isAdminAuthenticated = true;
+      alert('✅ Código Authy validado com sucesso!');
+      renderAdminView();
+    } else {
+      alert('❌ Código Authy incorreto ou expirado. Tente novamente.');
+    }
+  } catch (err) {
+    console.error("Erro ao validar token TOTP:", err);
+    alert('Erro técnico na validação do 2FA.');
+  }
 }
 
 function setupAuthTabs() {
@@ -235,7 +240,6 @@ async function loadProfile() {
       currentProfile = { id: currentUser.id, username: currentUser.email.split('@')[0], role: 'user', is_pro: false };
     }
 
-    // REMOVIDO: Botão de Admin da barra lateral fica completamente oculto
     const adminPanelBtn = document.getElementById('adminPanelBtn');
     if (adminPanelBtn) {
       adminPanelBtn.classList.add('hidden');
@@ -392,9 +396,6 @@ function initAppFeatures() {
   }
 }
 
-// ------------------------------------------------------------
-// BANNER / COMUNICADOS GLOBAIS
-// ------------------------------------------------------------
 async function loadGlobalBanner() {
   const { data: banner } = await supabaseClient
     .from('global_announcements')
@@ -425,9 +426,6 @@ async function loadGlobalBanner() {
   }
 }
 
-// ------------------------------------------------------------
-// RENDERIZAÇÃO DO PAINEL ADMIN (PROTEGIDO POR 2FA)
-// ------------------------------------------------------------
 async function renderAdminView() {
   document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
 
@@ -445,11 +443,10 @@ async function renderAdminView() {
 
   adminView.innerHTML = `
     <div class="page-title" style="display:flex; justify-content:space-between; align-items:center;">
-      <div><span class="eyebrow" style="color: #ef4444;">ÁREA RESTRITA (AUTHY 2FA ATIVO)</span><h1>Painel de Administração</h1></div>
+      <div><span class="eyebrow" style="color: #ef4444;">ÁREA RESTRITA (AUTHY 2FA VERIFICADO)</span><h1>Painel de Administração</h1></div>
       <button onclick="lockAdminSession()" style="background: #ef4444; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 12px;">🔒 Bloquear Painel</button>
     </div>
 
-    <!-- COMUNICADO GLOBAL -->
     <div class="panel" style="margin-bottom: 20px; border: 1px solid #3b82f6;">
       <div class="panel-head"><h2>📢 Transmitir Comunicado Global (Banner)</h2></div>
       <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px;">
@@ -464,20 +461,17 @@ async function renderAdminView() {
       </div>
     </div>
 
-    <!-- ESTATÍSTICAS -->
     <div class="stats" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px;">
       <div class="panel" style="text-align: center;"><h3 style="color:var(--accent); font-size:24px;" id="statUsers">...</h3><p style="color:#a8a8a8; font-size:13px; margin:0;">Utilizadores Totais</p></div>
       <div class="panel" style="text-align: center;"><h3 style="color:#22c55e; font-size:24px;" id="statPro">...</h3><p style="color:#a8a8a8; font-size:13px; margin:0;">Membros PRO</p></div>
       <div class="panel" style="text-align: center;"><h3 style="color:var(--accent); font-size:24px;" id="statPosts">...</h3><p style="color:#a8a8a8; font-size:13px; margin:0;">Posts Públicos</p></div>
     </div>
 
-    <!-- GESTÃO DE UTILIZADORES -->
     <div class="panel" style="margin-bottom: 20px;">
       <div class="panel-head"><h2>Gestão de Permissões e Planos PRO</h2></div>
       <div id="adminUsersList" style="max-height: 300px; overflow-y: auto; margin-top: 10px;"><p style="color: #737373;">A carregar lista...</p></div>
     </div>
 
-    <!-- MODERAÇÃO DE POSTS -->
     <div class="panel">
       <div class="panel-head"><h2>Moderação de Publicações do Feed</h2></div>
       <div id="adminPostsList" style="max-height: 300px; overflow-y: auto; margin-top: 10px;"><p style="color: #737373;">A carregar posts...</p></div>
@@ -492,7 +486,7 @@ async function renderAdminView() {
 window.lockAdminSession = function() {
   isAdminAuthenticated = false;
   document.querySelector('[data-target="dashboard"]').click();
-  alert('Sessão administrativa bloqueada.');
+  alert('Sessão administrativa bloqueada com segurança.');
 };
 
 async function loadAdminStats() {
@@ -655,499 +649,4 @@ function openSubjectView(sub) {
   const titleEl = document.getElementById('subjectTitle');
   if (titleEl) titleEl.textContent = sub.name;
 
-  loadSubjectDetails(sub.id);
-  setupRealtimeSubjectDetails(sub.id);
-}
-
-function setupRealtimeSubjectDetails(subjectId) {
-  if (subjectContentsSubscription) {
-    supabaseClient.removeChannel(subjectContentsSubscription);
-  }
-
-  subjectContentsSubscription = supabaseClient
-    .channel(`public:subject_contents:subject_id=eq.${subjectId}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'subject_contents', filter: `subject_id=eq.${subjectId}` }, () => {
-      loadSubjectLinksAndFiles(subjectId);
-    })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks', filter: `subject_id=eq.${subjectId}` }, () => {
-      loadSubjectTasks(subjectId);
-      loadTasks();
-      loadAllTasksView();
-    })
-    .subscribe();
-}
-
-async function loadSubjectDetails(subjectId) {
-  const { data: subData } = await supabaseClient.from('subjects').select('notes').eq('id', subjectId).single();
-  const notesArea = document.getElementById('notes');
-  if (notesArea && subData) notesArea.value = subData.notes || '';
-
-  const saveNoteBtn = document.getElementById('saveNoteBtn');
-  if (saveNoteBtn) {
-    saveNoteBtn.onclick = async () => {
-      const notes = notesArea.value;
-      await supabaseClient.from('subjects').update({ notes }).eq('id', subjectId);
-      alert('Anotações salvas com sucesso!');
-    };
-  }
-
-  const deleteSubjectBtn = document.getElementById('deleteSubjectBtn');
-  if (deleteSubjectBtn) {
-    deleteSubjectBtn.onclick = async () => {
-      if (confirm('Deseja excluir esta matéria?')) {
-        await supabaseClient.from('subjects').delete().eq('id', subjectId);
-        document.querySelector('[data-target="dashboard"]').click();
-        loadSubjects();
-      }
-    };
-  }
-
-  const handleNewTask = async () => {
-    const title = prompt('Nome da prova, lembrete ou tarefa:');
-    if (!title) return;
-    const due_date = prompt('Data de entrega (AAAA-MM-DD):', new Date().toISOString().split('T')[0]);
-
-    const { error } = await supabaseClient.from('tasks').insert([
-      { user_id: currentUser.id, subject_id: subjectId, title, due_date }
-    ]);
-
-    if (error) {
-      alert('Erro ao criar tarefa: ' + error.message);
-    } else {
-      loadSubjectTasks(subjectId);
-      loadTasks();
-      loadAllTasksView();
-    }
-  };
-
-  const newTaskBtn = document.getElementById('newTaskBtn');
-  const newTaskBtn2 = document.getElementById('newTaskBtn2');
-  if (newTaskBtn) newTaskBtn.onclick = handleNewTask;
-  if (newTaskBtn2) newTaskBtn2.onclick = handleNewTask;
-
-  loadSubjectTasks(subjectId);
-
-  const newLinkBtn = document.getElementById('newLinkBtn');
-  if (newLinkBtn) {
-    newLinkBtn.onclick = async () => {
-      const title = prompt('Título do link ou vídeo:');
-      const url = prompt('URL (link do site ou vídeo):');
-      if (!title || !url) return;
-
-      await supabaseClient.from('subject_contents').insert([
-        { subject_id: subjectId, user_id: currentUser.id, title, type: url.includes('youtube') ? 'video' : 'link', url, content: title }
-      ]);
-    };
-  }
-
-  const fileInput = document.getElementById('fileInput');
-  if (fileInput) {
-    fileInput.onchange = async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      alert('A carregar arquivo para o storage...');
-      const fileExt = file.name.split('.').pop();
-      const fileName = `sub_${Date.now()}.${fileExt}`;
-      const filePath = `subjects/${fileName}`;
-
-      const { error: uploadError } = await supabaseClient.storage.from('imagens').upload(filePath, file);
-      if (uploadError) {
-        alert('Erro ao enviar arquivo: ' + uploadError.message);
-        return;
-      }
-
-      const { data: urlData } = supabaseClient.storage.from('imagens').getPublicUrl(filePath);
-      const url = urlData.publicUrl;
-      const fileType = file.type.startsWith('image/') ? 'image' : 'file';
-
-      await supabaseClient.from('subject_contents').insert([
-        { subject_id: subjectId, user_id: currentUser.id, title: file.name, type: fileType, url, content: file.name }
-      ]);
-
-      alert('Arquivo enviado com sucesso!');
-    };
-  }
-
-  loadSubjectLinksAndFiles(subjectId);
-}
-
-async function loadSubjectTasks(subjectId) {
-  const tasksContainer = document.getElementById('tasks');
-  if (!tasksContainer) return;
-
-  const { data: tasks } = await supabaseClient.from('tasks').select('*').eq('subject_id', subjectId);
-  tasksContainer.innerHTML = '';
-  if (!tasks || tasks.length === 0) {
-    tasksContainer.innerHTML = '<small style="color: #737373;">Nenhuma tarefa pendente.</small>';
-  } else {
-    tasks.forEach(task => {
-      const div = document.createElement('div');
-      div.style.cssText = 'padding: 8px 0; border-bottom: 1px solid #262626; font-size: 13px; display:flex; justify-content:space-between; align-items:center;';
-      div.innerHTML = `
-        <span><b>${escapeHtml(task.title)}</b> <small style="color:var(--accent);">(${task.due_date || 'Sem data'})</small></span>
-        <button onclick="deleteTask('${task.id}')" style="background:transparent; border:none; color:#ef4444; cursor:pointer; font-size:14px;">✕</button>
-      `;
-      tasksContainer.appendChild(div);
-    });
-  }
-}
-
-async function loadSubjectLinksAndFiles(subjectId) {
-  const linksContainer = document.getElementById('links');
-  const filesContainer = document.getElementById('files');
-
-  const { data: contents } = await supabaseClient.from('subject_contents').select('*').eq('subject_id', subjectId);
-  
-  if (linksContainer) {
-    linksContainer.innerHTML = '';
-    const links = contents?.filter(c => c.type === 'link' || c.type === 'video') || [];
-    if (links.length === 0) {
-      linksContainer.innerHTML = '<small style="color: #737373;">Nenhum link adicionado.</small>';
-    } else {
-      links.forEach(l => {
-        const div = document.createElement('div');
-        div.style.cssText = 'padding: 8px 0; font-size: 13px; border-bottom: 1px solid #262626; display:flex; justify-content:space-between; align-items:center; gap: 10px;';
-        div.innerHTML = `
-          <a href="${l.url}" target="_blank" style="color: var(--accent); text-decoration: none; word-break: break-all; flex: 1;">🔗 ${escapeHtml(l.title)}</a>
-          <button onclick="deleteContent('${l.id}')" style="background:transparent; border:none; color:#ef4444; cursor:pointer; flex-shrink:0;">✕</button>
-        `;
-        linksContainer.appendChild(div);
-      });
-    }
-  }
-
-  if (filesContainer) {
-    filesContainer.innerHTML = '';
-    const files = contents?.filter(c => c.type === 'file' || c.type === 'image') || [];
-    if (files.length === 0) {
-      filesContainer.innerHTML = '<small style="color: #737373;">Nenhum arquivo enviado.</small>';
-    } else {
-      files.forEach(f => {
-        const div = document.createElement('div');
-        div.style.cssText = 'padding: 12px 0; border-bottom: 1px solid #262626;';
-        
-        let previewHtml = '';
-        if (f.type === 'image' || (f.url && f.url.match(/\.(jpeg|jpg|png|gif|webp)$/i))) {
-          previewHtml = `
-            <div style="margin-bottom: 8px; font-weight: 500; font-size: 13px; display: flex; justify-content: space-between; align-items: center;">
-              <span style="color: #fff; word-break: break-all;">🖼️ ${escapeHtml(f.title)}</span>
-              <a href="${f.url}" target="_blank" style="color: #38bdf8; text-decoration: none; font-size: 12px; flex-shrink: 0;">🔍 Abrir original</a>
-            </div>
-            <div style="width: 100%; max-height: 280px; overflow: hidden; border-radius: 8px; background: #000; display: flex; justify-content: center; align-items: center;">
-              <a href="${f.url}" target="_blank" style="width: 100%; display: flex; justify-content: center;">
-                <img src="${f.url}" style="width: 100%; height: auto; max-height: 280px; object-fit: contain; display: block; cursor: pointer;" onerror="this.outerHTML='<p style=\'color: #ef4444; font-size: 12px; padding: 10px; margin:0;\'>⚠️ Erro ao carregar miniatura.</p>';">
-              </a>
-            </div>
-          `;
-        } else {
-          previewHtml = `<a href="${f.url}" target="_blank" style="color: #38bdf8; text-decoration: none; word-break: break-all;">📄 ${escapeHtml(f.title)} (Baixar/Ver)</a>`;
-        }
-
-        div.innerHTML = `
-          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap: 10px;">
-            <div style="flex:1; min-width: 0;">${previewHtml}</div>
-            <button onclick="deleteContent('${f.id}')" style="background:transparent; border:none; color:#ef4444; cursor:pointer; flex-shrink: 0;" title="Excluir">✕</button>
-          </div>
-        `;
-        filesContainer.appendChild(div);
-      });
-    }
-  }
-}
-
-window.deleteContent = async function(contentId) {
-  if (confirm('Deseja excluir este item?')) {
-    await supabaseClient.from('subject_contents').delete().eq('id', contentId);
-  }
-};
-
-// ------------------------------------------------------------
-// TAREFAS GLOBAIS
-// ------------------------------------------------------------
-async function loadTasks() {
-  const upcoming = document.getElementById('upcoming');
-  if (!upcoming) return;
-
-  const { data: tasks } = await supabaseClient.from('tasks').select('*').eq('user_id', currentUser.id).limit(5);
-  upcoming.innerHTML = '';
-
-  if (!tasks || tasks.length === 0) {
-    upcoming.innerHTML = '<p style="color: #737373; font-size: 13px;">Nenhuma tarefa agendada.</p>';
-    return;
-  }
-
-  tasks.forEach(t => {
-    const item = document.createElement('div');
-    item.style.cssText = 'padding: 10px 0; border-bottom: 1px solid #262626; font-size: 13px; display:flex; justify-content:space-between; align-items:center; gap: 10px;';
-    item.innerHTML = `
-      <div style="word-break: break-all; flex: 1;"><b>${escapeHtml(t.title)}</b></div>
-      <span style="color: var(--accent); flex-shrink: 0;">${t.due_date || ''}</span>
-    `;
-    upcoming.appendChild(item);
-  });
-}
-
-async function loadAllTasksView() {
-  const container = document.getElementById('globalTasksList');
-  if (!container) return;
-
-  const { data: tasks, error } = await supabaseClient
-    .from('tasks')
-    .select('*')
-    .eq('user_id', currentUser.id)
-    .order('due_date', { ascending: true });
-
-  container.innerHTML = '';
-
-  if (error || !tasks || tasks.length === 0) {
-    container.innerHTML = '<p style="color: #737373; padding: 20px;">Nenhuma prova ou tarefa registada.</p>';
-    return;
-  }
-
-  tasks.forEach(task => {
-    const card = document.createElement('div');
-    card.className = 'panel';
-    card.style.cssText = 'margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; gap: 15px; background: #121216; border: 1px solid #262626; border-radius: 8px; padding: 14px;';
-    card.innerHTML = `
-      <div style="flex: 1; word-break: break-all;">
-        <h3 style="color: var(--accent); margin-bottom: 4px; font-size: 15px;">${escapeHtml(task.title)}</h3>
-        <p style="font-size: 12px; color: #a8a8a8; margin: 0;">Data de Entrega / Prova: <b>${task.due_date || 'Não definida'}</b></p>
-      </div>
-      <button onclick="deleteTask('${task.id}')" style="background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; flex-shrink: 0;">Excluir</button>
-    `;
-    container.appendChild(card);
-  });
-}
-
-window.deleteTask = async function(taskId) {
-  if (confirm('Deseja excluir esta tarefa?')) {
-    await supabaseClient.from('tasks').delete().eq('id', taskId);
-    loadTasks();
-    loadAllTasksView();
-  }
-};
-
-function setupRealtimeGlobalTasks() {
-  if (tasksSubscription) supabaseClient.removeChannel(tasksSubscription);
-  tasksSubscription = supabaseClient.channel('public:tasks_realtime').on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
-    loadTasks();
-    loadAllTasksView();
-  }).subscribe();
-}
-
-// ------------------------------------------------------------
-// FEED DE POSTS
-// ------------------------------------------------------------
-async function loadPosts() {
-  const container = document.getElementById('postsList');
-  if (!container) return;
-
-  const { data: posts } = await supabaseClient.from('posts').select(`*, profiles:user_id (username)`).order('created_at', { ascending: false });
-  container.innerHTML = '';
-
-  if (!posts || posts.length === 0) {
-    container.innerHTML = '<p style="text-align: center; color: #737373; padding: 40px 0;">Nenhuma publicação ainda.</p>';
-    return;
-  }
-
-  posts.forEach(post => renderPostCard(post));
-}
-
-function renderPostCard(post) {
-  const container = document.getElementById('postsList');
-  if (!container) return;
-
-  const card = document.createElement('div');
-  card.className = 'panel';
-  card.style.marginBottom = '14px';
-
-  let mediaRender = '';
-  if (post.media_url && post.media_url.trim() !== '') {
-    mediaRender = `
-      <div style="margin-top: 12px; width: 100%; max-height: 450px; overflow: hidden; border-radius: 8px;">
-        <a href="${post.media_url}" target="_blank"><img src="${post.media_url}" style="width: 100%; height: auto; max-height: 450px; object-fit: cover; display: block;"></a>
-      </div>`;
-  }
-
-  card.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-      <span style="font-weight: 600; color: var(--accent);">@${post.profiles?.username || 'utilizador'}</span>
-    </div>
-    <div style="font-size: 14px; line-height: 1.4; word-break: break-word;">${escapeHtml(post.content)}</div>
-    ${mediaRender}
-  `;
-
-  container.appendChild(card);
-}
-
-function setupRealtimeFeed() {
-  if (feedSubscription) supabaseClient.removeChannel(feedSubscription);
-  feedSubscription = supabaseClient.channel('public:posts_fast_sync').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, () => {
-    loadPosts();
-  }).subscribe();
-}
-
-// ------------------------------------------------------------
-// GRUPOS E CHAT EM TEMPO REAL
-// ------------------------------------------------------------
-async function loadGroups() {
-  if (messageSubscription) {
-    supabaseClient.removeChannel(messageSubscription);
-    messageSubscription = null;
-  }
-  activeGroupId = null;
-
-  const groupsList = document.getElementById('groupsList');
-  if (!groupsList) return;
-
-  const { data: groups, error } = await supabaseClient.from('groups').select('*').order('created_at', { ascending: false });
-  
-  if (error) {
-    groupsList.innerHTML = '<p style="color: #737373; font-size: 13px;">Crie a tabela "groups" no SQL Editor do Supabase primeiro.</p>';
-    return;
-  }
-
-  groupsList.innerHTML = '';
-  if (!groups || groups.length === 0) {
-    groupsList.innerHTML = '<p style="color: #737373; padding: 20px;">Nenhum grupo criado. Crie o primeiro acima!</p>';
-    return;
-  }
-
-  groups.forEach(group => {
-    const card = document.createElement('div');
-    card.className = 'panel';
-    card.style.cssText = 'margin-bottom: 12px; cursor: pointer; border: 1px solid #262626; transition: 0.2s;';
-    card.onclick = () => openGroupChat(group);
-
-    card.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-        <div style="flex: 1; min-width: 0;">
-          <h3 style="color: var(--accent); margin-bottom: 4px; word-break: break-all;">👥 ${escapeHtml(group.name)}</h3>
-          <p style="font-size: 13px; color: #a8a8a8; margin: 0;">Clique para abrir o chat do grupo.</p>
-        </div>
-        <button class="primary" style="padding: 6px 14px; font-size: 12px; flex-shrink: 0;" onclick="event.stopPropagation(); openGroupChat({id: '${group.id}', name: '${group.name}'})">Entrar no Grupo</button>
-      </div>
-    `;
-    groupsList.appendChild(card);
-  });
-}
-
-function openGroupChat(group) {
-  activeGroupId = group.id;
-  const groupsList = document.getElementById('groupsList');
-  if (!groupsList) return;
-  
-  groupsList.innerHTML = `
-    <div class="panel" style="display: flex; flex-direction: column; height: 65vh; padding: 0; overflow: hidden; background: #0b0b0f;">
-      <div style="padding: 16px; background: #16161f; border-bottom: 1px solid #262626; display: flex; justify-content: space-between; align-items: center;">
-        <div>
-          <h3 style="margin: 0; color: var(--accent);">👥 ${escapeHtml(group.name)}</h3>
-          <small style="color: #22c55e;">● Chat ao vivo</small>
-        </div>
-        <button onclick="loadGroups()" style="background: #262626; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer;">← Voltar aos Grupos</button>
-      </div>
-
-      <div id="chatMessages" style="flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
-        <p style="color: #737373; text-align: center;">A carregar mensagens...</p>
-      </div>
-
-      <div style="padding: 12px 16px; background: #16161f; border-top: 1px solid #262626; display: flex; gap: 10px;">
-        <input type="text" id="chatInput" placeholder="Escreva uma mensagem para o grupo..." style="flex: 1; background: #101017; color: white; border: 1px solid #353542; border-radius: 8px; padding: 10px; outline: none;" onkeydown="if(event.key === 'Enter') sendGroupMessage()">
-        <button onclick="sendGroupMessage()" class="primary" style="padding: 0 20px;">Enviar</button>
-      </div>
-    </div>
-  `;
-
-  loadGroupMessages(group.id);
-  setupRealtimeChat(group.id);
-}
-
-async function loadGroupMessages(groupId) {
-  const container = document.getElementById('chatMessages');
-  if (!container) return;
-
-  const { data: messages } = await supabaseClient
-    .from('group_messages')
-    .select('*, profiles:user_id (username)')
-    .eq('group_id', groupId)
-    .order('created_at', { ascending: true });
-
-  container.innerHTML = '';
-  if (!messages || messages.length === 0) {
-    container.innerHTML = '<p style="color: #737373; text-align: center; margin: auto;">Nenhuma mensagem neste grupo ainda. Seja o primeiro a enviar!</p>';
-    return;
-  }
-
-  messages.forEach(msg => appendMessageToChat(msg));
-  container.scrollTop = container.scrollHeight;
-}
-
-function appendMessageToChat(msg) {
-  const container = document.getElementById('chatMessages');
-  if (!container) return;
-
-  const emptyMsg = container.querySelector('p');
-  if (emptyMsg && emptyMsg.textContent.includes('Nenhuma mensagem')) {
-    emptyMsg.remove();
-  }
-
-  const isMe = msg.user_id === currentUser.id;
-  const msgDiv = document.createElement('div');
-  msgDiv.style.cssText = `max-width: 70%; padding: 10px 14px; border-radius: 10px; font-size: 13px; align-self: ${isMe ? 'flex-end' : 'flex-start'}; background: ${isMe ? '#2563eb' : '#1f1f2e'}; color: white; word-break: break-word;`;
-  
-  const username = msg.profiles?.username || 'utilizador';
-  msgDiv.innerHTML = `
-    <div style="font-size: 11px; font-weight: bold; color: ${isMe ? '#93c5fd' : '#38bdf8'}; margin-bottom: 2px;">@${username}</div>
-    <div>${escapeHtml(msg.content)}</div>
-  `;
-  container.appendChild(msgDiv);
-  container.scrollTop = container.scrollHeight;
-}
-
-window.sendGroupMessage = async function() {
-  if (!activeGroupId) return;
-  const input = document.getElementById('chatInput');
-  const content = input ? input.value.trim() : '';
-  if (!content) return;
-
-  input.value = '';
-
-  await supabaseClient.from('group_messages').insert([
-    { group_id: activeGroupId, user_id: currentUser.id, content }
-  ]);
-}
-
-function setupRealtimeChat(groupId) {
-  if (messageSubscription) {
-    supabaseClient.removeChannel(messageSubscription);
-  }
-
-  messageSubscription = supabaseClient
-    .channel(`public:group_messages:group_id=eq.${groupId}`)
-    .on('postgres_changes', {
-      event: 'INSERT',
-      schema: 'public',
-      table: 'group_messages',
-      filter: `group_id=eq.${groupId}`
-    }, async (payload) => {
-      const { data: profileData } = await supabaseClient
-        .from('profiles')
-        .select('username')
-        .eq('id', payload.new.user_id)
-        .maybeSingle();
-
-      const fullMessage = {
-        ...payload.new,
-        profiles: profileData || { username: 'utilizador' }
-      };
-
-      appendMessageToChat(fullMessage);
-    })
-    .subscribe();
-}
-
-function escapeHtml(text) {
-  if (!text) return '';
-  return text.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
-}
+  load
