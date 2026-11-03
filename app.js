@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS COMPLETO (TAREFAS LIVRES)
+// STUDY ORDER — APP.JS COMPLETO (FASE 3: PERMISSÕES & BANNERS)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -96,7 +96,7 @@ function setupAuthForm() {
 
         if (data?.user) {
           await supabaseClient.from('profiles').upsert([
-            { id: data.user.id, username, updated_at: new Date() }
+            { id: data.user.id, username, role: 'user', is_pro: false, updated_at: new Date() }
           ]).catch(() => {});
         }
 
@@ -109,7 +109,7 @@ function setupAuthForm() {
         if (data?.session || data?.user) {
           currentUser = data.session ? data.session.user : data.user;
           showAppScreen();
-          loadProfile();
+          await loadProfile();
           initAppFeatures();
         } else {
           window.location.reload();
@@ -133,7 +133,7 @@ async function checkUser() {
     if (session && session.user) {
       currentUser = session.user;
       showAppScreen();
-      loadProfile();
+      await loadProfile();
       initAppFeatures();
     } else {
       showAuthScreen();
@@ -168,11 +168,22 @@ async function loadProfile() {
     if (data) {
       currentProfile = data;
     } else {
-      currentProfile = { id: currentUser.id, username: currentUser.email.split('@')[0] };
+      currentProfile = { id: currentUser.id, username: currentUser.email.split('@')[0], role: 'user', is_pro: false };
+    }
+
+    // Exibe ou oculta o botão do Painel Admin baseado no perfil/role
+    const adminPanelBtn = document.getElementById('adminPanelBtn');
+    if (adminPanelBtn) {
+      if (currentProfile && (currentProfile.role === 'admin' || currentProfile.role === 'super_admin')) {
+        adminPanelBtn.classList.remove('hidden');
+        adminPanelBtn.onclick = () => openAdminView();
+      } else {
+        adminPanelBtn.classList.add('hidden');
+      }
     }
   } catch (err) {
     console.warn("Erro ao carregar perfil:", err);
-    currentProfile = { id: currentUser.id, username: currentUser.email.split('@')[0] };
+    currentProfile = { id: currentUser.id, username: currentUser.email.split('@')[0], role: 'user', is_pro: false };
   }
 }
 
@@ -221,6 +232,7 @@ function setupNavigation() {
 }
 
 function initAppFeatures() {
+  loadGlobalBanner();
   loadPosts();
   setupRealtimeFeed();
   loadSubjects();
@@ -300,7 +312,6 @@ function initAppFeatures() {
     };
   }
 
-  // CRIAÇÃO DE TAREFA/LEMBRETE GLOBAL (SEM EXIGIR MATÉRIA)
   const globalNewTaskBtn = document.getElementById('globalNewTaskBtn');
   if (globalNewTaskBtn) {
     globalNewTaskBtn.onclick = async () => {
@@ -321,6 +332,226 @@ function initAppFeatures() {
     };
   }
 }
+
+// ------------------------------------------------------------
+// BANNER / COMUNICADOS GLOBAIS
+// ------------------------------------------------------------
+async function loadGlobalBanner() {
+  const { data: banner } = await supabaseClient
+    .from('global_announcements')
+    .select('*')
+    .eq('is_active', true)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let bannerContainer = document.getElementById('systemGlobalBanner');
+  if (!bannerContainer) {
+    bannerContainer = document.createElement('div');
+    bannerContainer.id = 'systemGlobalBanner';
+    const mainContent = document.querySelector('.content') || document.body;
+    mainContent.insertBefore(bannerContainer, mainContent.firstChild);
+  }
+
+  if (banner && banner.message) {
+    const bgColor = banner.type === 'warning' ? '#ca8a04' : (banner.type === 'success' ? '#16a34a' : '#2563eb');
+    bannerContainer.innerHTML = `
+      <div style="background: ${bgColor}; color: white; padding: 10px 16px; border-radius: 8px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 500;">
+        <span>📢 ${escapeHtml(banner.message)}</span>
+        <button onclick="document.getElementById('systemGlobalBanner').innerHTML='';" style="background:transparent; border:none; color:white; font-size:16px; cursor:pointer;">✕</button>
+      </div>
+    `;
+  } else {
+    bannerContainer.innerHTML = '';
+  }
+}
+
+// ------------------------------------------------------------
+// PAINEL DE ADMINISTRAÇÃO COMPLETO
+// ------------------------------------------------------------
+async function openAdminView() {
+  if (!currentProfile || (currentProfile.role !== 'admin' && currentProfile.role !== 'super_admin')) {
+    alert('Acesso restrito a administradores.');
+    return;
+  }
+
+  document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
+
+  let adminView = document.getElementById('adminView');
+  if (!adminView) {
+    adminView = document.createElement('div');
+    adminView.id = 'adminView';
+    adminView.className = 'view';
+    document.querySelector('.content').appendChild(adminView);
+  }
+  adminView.classList.remove('hidden');
+
+  const breadcrumb = document.getElementById('breadcrumb');
+  if (breadcrumb) breadcrumb.textContent = 'Painel Admin';
+
+  adminView.innerHTML = `
+    <div class="page-title">
+      <div><span class="eyebrow" style="color: #ef4444;">ÁREA DE CONTROLO</span><h1>Painel de Administração</h1></div>
+    </div>
+
+    <!-- CRIAR AVISO GLOBAL -->
+    <div class="panel" style="margin-bottom: 20px; border: 1px solid #3b82f6;">
+      <div class="panel-head"><h2>📢 Transmitir Comunicado Global (Banner)</h2></div>
+      <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px;">
+        <input type="text" id="adminBannerMsg" placeholder="Escreva um comunicado para todos os utilizadores..." style="flex: 1; min-width: 250px; background: #101017; color: white; border: 1px solid #262626; border-radius: 6px; padding: 10px;">
+        <select id="adminBannerType" style="background: #101017; color: white; border: 1px solid #262626; border-radius: 6px; padding: 10px;">
+          <option value="info">Informação (Azul)</option>
+          <option value="warning">Alerta (Amarelo)</option>
+          <option value="success">Sucesso (Verde)</option>
+        </select>
+        <button onclick="adminPublishBanner()" class="primary" style="padding: 10px 16px;">Publicar Banner</button>
+        <button onclick="adminClearBanner()" style="background: #ef4444; color: white; border: none; border-radius: 6px; padding: 10px 16px; cursor: pointer;">Desativar Banners</button>
+      </div>
+    </div>
+
+    <!-- ESTATÍSTICAS -->
+    <div class="stats" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px;">
+      <div class="panel" style="text-align: center;"><h3 style="color:var(--accent); font-size:24px;" id="statUsers">...</h3><p style="color:#a8a8a8; font-size:13px; margin:0;">Utilizadores Totais</p></div>
+      <div class="panel" style="text-align: center;"><h3 style="color:#22c55e; font-size:24px;" id="statPro">...</h3><p style="color:#a8a8a8; font-size:13px; margin:0;">Membros PRO</p></div>
+      <div class="panel" style="text-align: center;"><h3 style="color:var(--accent); font-size:24px;" id="statPosts">...</h3><p style="color:#a8a8a8; font-size:13px; margin:0;">Posts Públicos</p></div>
+    </div>
+
+    <!-- GESTÃO DE UTILIZADORES E PRO -->
+    <div class="panel" style="margin-bottom: 20px;">
+      <div class="panel-head"><h2>Gestão de Permissões e Planos PRO</h2></div>
+      <div id="adminUsersList" style="max-height: 300px; overflow-y: auto; margin-top: 10px;"><p style="color: #737373;">A carregar lista...</p></div>
+    </div>
+
+    <!-- MODERAÇÃO DE POSTS -->
+    <div class="panel">
+      <div class="panel-head"><h2>Moderação de Publicações do Feed</h2></div>
+      <div id="adminPostsList" style="max-height: 300px; overflow-y: auto; margin-top: 10px;"><p style="color: #737373;">A carregar posts...</p></div>
+    </div>
+  `;
+
+  loadAdminStats();
+  loadAdminUsers();
+  loadAdminPosts();
+}
+
+async function loadAdminStats() {
+  const { count: usersCount } = await supabaseClient.from('profiles').select('*', { count: 'exact', head: true });
+  const { count: proCount } = await supabaseClient.from('profiles').select('*', { count: 'exact', head: true }).eq('is_pro', true);
+  const { count: postsCount } = await supabaseClient.from('posts').select('*', { count: 'exact', head: true });
+
+  if (document.getElementById('statUsers')) document.getElementById('statUsers').textContent = usersCount ?? 0;
+  if (document.getElementById('statPro')) document.getElementById('statPro').textContent = proCount ?? 0;
+  if (document.getElementById('statPosts')) document.getElementById('statPosts').textContent = postsCount ?? 0;
+}
+
+async function loadAdminUsers() {
+  const container = document.getElementById('adminUsersList');
+  if (!container) return;
+
+  const { data: profiles } = await supabaseClient.from('profiles').select('*').order('created_at', { ascending: false });
+  if (!profiles || profiles.length === 0) {
+    container.innerHTML = '<p style="color: #737373; font-size: 13px;">Nenhum utilizador registado.</p>';
+    return;
+  }
+
+  container.innerHTML = '';
+  profiles.forEach(p => {
+    const isPro = p.is_pro === true;
+    const role = p.role || 'user';
+
+    const div = document.createElement('div');
+    div.style.cssText = 'padding: 10px 0; border-bottom: 1px solid #262626; font-size: 13px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;';
+    div.innerHTML = `
+      <div>
+        <b style="color: #fff;">@${escapeHtml(p.username)}</b> 
+        <span style="font-size: 11px; padding: 2px 6px; border-radius: 4px; background: ${role === 'admin' ? '#ef4444' : '#262626'}; color: white; margin-left: 6px;">${role.toUpperCase()}</span>
+        <span style="font-size: 11px; padding: 2px 6px; border-radius: 4px; background: ${isPro ? '#22c55e' : '#334155'}; color: white; margin-left: 4px;">${isPro ? 'PRO' : 'GRÁTIS'}</span>
+      </div>
+
+      <div style="display: flex; gap: 6px;">
+        <button onclick="adminTogglePro('${p.id}', ${!isPro})" style="background: ${isPro ? '#ca8a04' : '#16a34a'}; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 11px;">
+          ${isPro ? 'Remover PRO' : 'Tornar PRO'}
+        </button>
+        <button onclick="adminToggleRole('${p.id}', '${role === 'admin' ? 'user' : 'admin'}')" style="background: #3b82f6; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 11px;">
+          ${role === 'admin' ? 'Tornar Utilizador' : 'Tornar Admin'}
+        </button>
+      </div>
+    `;
+    container.appendChild(div);
+  });
+}
+
+window.adminTogglePro = async function(userId, newProStatus) {
+  await supabaseClient.from('profiles').update({ is_pro: newProStatus }).eq('id', userId);
+  loadAdminUsers();
+  loadAdminStats();
+};
+
+window.adminToggleRole = async function(userId, newRole) {
+  if (confirm(`Deseja alterar o cargo deste utilizador para ${newRole}?`)) {
+    await supabaseClient.from('profiles').update({ role: newRole }).eq('id', userId);
+    loadAdminUsers();
+  }
+};
+
+window.adminPublishBanner = async function() {
+  const msgInput = document.getElementById('adminBannerMsg');
+  const typeInput = document.getElementById('adminBannerType');
+  const message = msgInput ? msgInput.value.trim() : '';
+  const type = typeInput ? typeInput.value : 'info';
+
+  if (!message) return alert('Escreva a mensagem do comunicado.');
+
+  // Desativa os banners anteriores
+  await supabaseClient.from('global_announcements').update({ is_active: false }).neq('id', '00000000-0000-0000-0000-000000000000');
+
+  // Cria o novo comunicado ativo
+  await supabaseClient.from('global_announcements').insert([{ message, type, is_active: true }]);
+  
+  if (msgInput) msgInput.value = '';
+  alert('Banner publicado com sucesso!');
+  loadGlobalBanner();
+};
+
+window.adminClearBanner = async function() {
+  await supabaseClient.from('global_announcements').update({ is_active: false }).neq('id', '00000000-0000-0000-0000-000000000000');
+  alert('Todos os banners foram desativados.');
+  loadGlobalBanner();
+};
+
+async function loadAdminPosts() {
+  const container = document.getElementById('adminPostsList');
+  if (!container) return;
+
+  const { data: posts } = await supabaseClient.from('posts').select(`*, profiles:user_id (username)`).order('created_at', { ascending: false });
+  if (!posts || posts.length === 0) {
+    container.innerHTML = '<p style="color: #737373; font-size: 13px;">Nenhuma publicação para moderar.</p>';
+    return;
+  }
+
+  container.innerHTML = '';
+  posts.forEach(post => {
+    const div = document.createElement('div');
+    div.style.cssText = 'padding: 10px 0; border-bottom: 1px solid #262626; display: flex; justify-content: space-between; align-items: center; gap: 10px;';
+    div.innerHTML = `
+      <div style="flex: 1; min-width: 0;">
+        <b style="color: var(--accent);">@${escapeHtml(post.profiles?.username || 'utilizador')}</b>:
+        <span style="color: #fff; font-size: 13px;">${escapeHtml(post.content || '[Apenas Mídia]')}</span>
+      </div>
+      <button onclick="adminDeletePost('${post.id}')" style="background: #ef4444; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; flex-shrink: 0;">Apagar</button>
+    `;
+    container.appendChild(div);
+  });
+}
+
+window.adminDeletePost = async function(postId) {
+  if (confirm('Deseja apagar esta publicação?')) {
+    await supabaseClient.from('posts').delete().eq('id', postId);
+    loadAdminPosts();
+    loadAdminStats();
+    loadPosts();
+  }
+};
 
 // ------------------------------------------------------------
 // MATÉRIAS E DETALHES
