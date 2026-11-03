@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS DEFINITIVO (USANDO O BUCKET "imagens")
+// STUDY ORDER — APP.JS COMPLETO (COM SUPORTE A REALTIME E LAYOUT)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -16,6 +16,8 @@ let selectedSubjectId = null;
 let activeGroupId = null;
 let messageSubscription = null;
 let feedSubscription = null;
+let tasksSubscription = null;
+let subjectContentsSubscription = null;
 let selectedPostFileUrl = null;
 
 const MOTIVATIONAL_QUOTES = [
@@ -215,6 +217,8 @@ function setupNavigation() {
     logoutBtn.onclick = async () => {
       if (messageSubscription) supabaseClient.removeChannel(messageSubscription);
       if (feedSubscription) supabaseClient.removeChannel(feedSubscription);
+      if (tasksSubscription) supabaseClient.removeChannel(tasksSubscription);
+      if (subjectContentsSubscription) supabaseClient.removeChannel(subjectContentsSubscription);
       await supabaseClient.auth.signOut();
       localStorage.clear();
       location.reload();
@@ -228,6 +232,7 @@ function initAppFeatures() {
   loadSubjects();
   loadTasks();
   loadGroups();
+  setupRealtimeGlobalTasks();
 
   const postFileInput = document.getElementById('postFileInput');
   if (postFileInput) {
@@ -310,12 +315,13 @@ function initAppFeatures() {
       await supabaseClient.from('tasks').insert([
         { user_id: currentUser.id, title, due_date }
       ]);
-      loadTasks();
-      loadAllTasksView();
     };
   }
 }
 
+// ------------------------------------------------------------
+// 3. MATÉRIAS E GERENCIAMENTO DETALHADO
+// ------------------------------------------------------------
 async function loadSubjects() {
   const subjectNav = document.getElementById('subjectNav');
   const subjectCards = document.getElementById('subjectCards');
@@ -358,6 +364,55 @@ function openSubjectView(sub) {
   if (titleEl) titleEl.textContent = sub.name;
 
   loadSubjectDetails(sub.id);
+  setupRealtimeSubjectDetails(sub.id);
+}
+
+function setupRealtimeSubjectDetails(subjectId) {
+  if (subjectContentsSubscription) {
+    supabaseClient.removeChannel(subjectContentsSubscription);
+  }
+
+  subjectContentsSubscription = supabaseClient
+    .channel(`public:subject_contents:subject_id=eq.${subjectId}`)
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'subject_contents',
+      filter: `subject_id=eq.${subjectId}`
+    }, () => {
+      loadSubjectLinksAndFiles(subjectId);
+    })
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'tasks',
+      filter: `subject_id=eq.${subjectId}`
+    }, () => {
+      loadSubjectTasks(subjectId);
+      loadTasks();
+    })
+    .subscribe();
+}
+
+async function loadSubjectTasks(subjectId) {
+  const tasksContainer = document.getElementById('tasks');
+  if (!tasksContainer) return;
+
+  const { data: tasks } = await supabaseClient.from('tasks').select('*').eq('subject_id', subjectId);
+  tasksContainer.innerHTML = '';
+  if (!tasks || tasks.length === 0) {
+    tasksContainer.innerHTML = '<small style="color: #737373;">Nenhuma tarefa pendente.</small>';
+  } else {
+    tasks.forEach(task => {
+      const div = document.createElement('div');
+      div.style.cssText = 'padding: 8px 0; border-bottom: 1px solid #262626; font-size: 13px; display:flex; justify-content:space-between; align-items:center;';
+      div.innerHTML = `
+        <span><b>${escapeHtml(task.title)}</b> <small style="color:var(--accent);">(${task.due_date || 'Sem data'})</small></span>
+        <button onclick="deleteTask('${task.id}', '${subjectId}')" style="background:transparent; border:none; color:#ef4444; cursor:pointer; font-size:14px;" title="Excluir tarefa">✕</button>
+      `;
+      tasksContainer.appendChild(div);
+    });
+  }
 }
 
 async function loadSubjectDetails(subjectId) {
@@ -393,8 +448,6 @@ async function loadSubjectDetails(subjectId) {
     await supabaseClient.from('tasks').insert([
       { user_id: currentUser.id, subject_id: subjectId, title, due_date }
     ]);
-    loadSubjectDetails(subjectId);
-    loadTasks();
   };
 
   const newTaskBtn = document.getElementById('newTaskBtn');
@@ -402,24 +455,7 @@ async function loadSubjectDetails(subjectId) {
   if (newTaskBtn) newTaskBtn.onclick = handleNewTask;
   if (newTaskBtn2) newTaskBtn2.onclick = handleNewTask;
 
-  const tasksContainer = document.getElementById('tasks');
-  if (tasksContainer) {
-    const { data: tasks } = await supabaseClient.from('tasks').select('*').eq('subject_id', subjectId);
-    tasksContainer.innerHTML = '';
-    if (!tasks || tasks.length === 0) {
-      tasksContainer.innerHTML = '<small style="color: #737373;">Nenhuma tarefa pendente.</small>';
-    } else {
-      tasks.forEach(task => {
-        const div = document.createElement('div');
-        div.style.cssText = 'padding: 8px 0; border-bottom: 1px solid #262626; font-size: 13px; display:flex; justify-content:space-between; align-items:center;';
-        div.innerHTML = `
-          <span><b>${escapeHtml(task.title)}</b> <small style="color:var(--accent);">(${task.due_date || 'Sem data'})</small></span>
-          <button onclick="deleteTask('${task.id}', '${subjectId}')" style="background:transparent; border:none; color:#ef4444; cursor:pointer; font-size:14px;" title="Excluir tarefa">✕</button>
-        `;
-        tasksContainer.appendChild(div);
-      });
-    }
-  }
+  loadSubjectTasks(subjectId);
 
   const newLinkBtn = document.getElementById('newLinkBtn');
   if (newLinkBtn) {
@@ -431,7 +467,6 @@ async function loadSubjectDetails(subjectId) {
       await supabaseClient.from('subject_contents').insert([
         { subject_id: subjectId, user_id: currentUser.id, title, type: url.includes('youtube') ? 'video' : 'link', url, content: title }
       ]);
-      loadSubjectLinksAndFiles(subjectId);
     };
   }
 
@@ -461,7 +496,6 @@ async function loadSubjectDetails(subjectId) {
       ]);
 
       alert('Arquivo enviado com sucesso!');
-      loadSubjectLinksAndFiles(subjectId);
     };
   }
 
@@ -482,10 +516,11 @@ async function loadSubjectLinksAndFiles(subjectId) {
     } else {
       links.forEach(l => {
         const div = document.createElement('div');
-        div.style.cssText = 'padding: 6px 0; font-size: 13px; border-bottom: 1px solid #262626; display:flex; justify-content:space-between; align-items:center;';
+        // Estilo com overflow-wrap e word-break para impedir que o link estique o painel
+        div.style.cssText = 'padding: 8px 0; font-size: 13px; border-bottom: 1px solid #262626; display:flex; justify-content:space-between; align-items:center; gap: 10px;';
         div.innerHTML = `
-          <a href="${l.url}" target="_blank" style="color: var(--accent); text-decoration: none;">🔗 ${escapeHtml(l.title)}</a>
-          <button onclick="deleteContent('${l.id}', '${subjectId}')" style="background:transparent; border:none; color:#ef4444; cursor:pointer;" title="Excluir">✕</button>
+          <a href="${l.url}" target="_blank" style="color: var(--accent); text-decoration: none; word-break: break-all; overflow-wrap: break-word; flex: 1;">🔗 ${escapeHtml(l.title)} <br><small style="color: #888; font-size: 11px;">${escapeHtml(l.url)}</small></a>
+          <button onclick="deleteContent('${l.id}', '${subjectId}')" style="background:transparent; border:none; color:#ef4444; cursor:pointer; flex-shrink: 0;" title="Excluir">✕</button>
         `;
         linksContainer.appendChild(div);
       });
@@ -506,8 +541,8 @@ async function loadSubjectLinksAndFiles(subjectId) {
         if (f.type === 'image' || (f.url && f.url.match(/\.(jpeg|jpg|png|gif|webp)$/i))) {
           previewHtml = `
             <div style="margin-bottom: 8px; font-weight: 500; font-size: 13px; display: flex; justify-content: space-between; align-items: center;">
-              <span style="color: #fff;">🖼️ ${escapeHtml(f.title)}</span>
-              <a href="${f.url}" target="_blank" style="color: #38bdf8; text-decoration: none; font-size: 12px;" title="Abrir imagem em tamanho real">🔍 Abrir original</a>
+              <span style="color: #fff; word-break: break-all;">🖼️ ${escapeHtml(f.title)}</span>
+              <a href="${f.url}" target="_blank" style="color: #38bdf8; text-decoration: none; font-size: 12px; flex-shrink: 0;" title="Abrir imagem em tamanho real">🔍 Abrir original</a>
             </div>
             <div style="width: 100%; max-height: 280px; overflow: hidden; border-radius: 8px; background: #000; display: flex; justify-content: center; align-items: center;">
               <a href="${f.url}" target="_blank" style="width: 100%; display: flex; justify-content: center;" title="Clique para abrir em tamanho real">
@@ -517,13 +552,13 @@ async function loadSubjectLinksAndFiles(subjectId) {
             </div>
           `;
         } else {
-          previewHtml = `<a href="${f.url}" target="_blank" style="color: #38bdf8; text-decoration: none;">📄 ${escapeHtml(f.title)} (Baixar/Ver)</a>`;
+          previewHtml = `<a href="${f.url}" target="_blank" style="color: #38bdf8; text-decoration: none; word-break: break-all;">📄 ${escapeHtml(f.title)} (Baixar/Ver)</a>`;
         }
 
         div.innerHTML = `
-          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-            <div style="flex:1; margin-right: 10px;">${previewHtml}</div>
-            <button onclick="deleteContent('${f.id}', '${subjectId}')" style="background:transparent; border:none; color:#ef4444; cursor:pointer;" title="Excluir arquivo">✕</button>
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap: 10px;">
+            <div style="flex:1; min-width: 0;">${previewHtml}</div>
+            <button onclick="deleteContent('${f.id}', '${subjectId}')" style="background:transparent; border:none; color:#ef4444; cursor:pointer; flex-shrink: 0;" title="Excluir arquivo">✕</button>
           </div>
         `;
         filesContainer.appendChild(div);
@@ -535,19 +570,18 @@ async function loadSubjectLinksAndFiles(subjectId) {
 window.deleteContent = async function(contentId, subjectId) {
   if (confirm('Deseja excluir este item?')) {
     await supabaseClient.from('subject_contents').delete().eq('id', contentId);
-    loadSubjectLinksAndFiles(subjectId);
   }
 };
 
 window.deleteTask = async function(taskId, subjectId = null) {
   if (confirm('Deseja excluir esta tarefa?')) {
     await supabaseClient.from('tasks').delete().eq('id', taskId);
-    loadTasks();
-    if (subjectId) loadSubjectDetails(subjectId);
-    loadAllTasksView();
   }
 };
 
+// ------------------------------------------------------------
+// 4. TAREFAS E REALTIME GLOBAL
+// ------------------------------------------------------------
 async function loadTasks() {
   const upcoming = document.getElementById('upcoming');
   if (!upcoming) return;
@@ -562,10 +596,10 @@ async function loadTasks() {
 
   tasks.forEach(t => {
     const item = document.createElement('div');
-    item.style.cssText = 'padding: 10px 0; border-bottom: 1px solid #262626; font-size: 13px; display:flex; justify-content:space-between; align-items:center;';
+    item.style.cssText = 'padding: 10px 0; border-bottom: 1px solid #262626; font-size: 13px; display:flex; justify-content:space-between; align-items:center; gap: 10px;';
     item.innerHTML = `
-      <div><b>${escapeHtml(t.title)}</b></div>
-      <span style="color: var(--accent);">${t.due_date || ''}</span>
+      <div style="word-break: break-all; flex: 1;"><b>${escapeHtml(t.title)}</b></div>
+      <span style="color: var(--accent); flex-shrink: 0;">${t.due_date || ''}</span>
     `;
     upcoming.appendChild(item);
   });
@@ -586,18 +620,42 @@ async function loadAllTasksView() {
   tasks.forEach(task => {
     const card = document.createElement('div');
     card.className = 'panel';
-    card.style.cssText = 'margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;';
+    card.style.cssText = 'margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; gap: 15px;';
     card.innerHTML = `
-      <div>
+      <div style="flex: 1; word-break: break-all;">
         <h3 style="color: var(--accent); margin-bottom: 4px; font-size: 15px;">${escapeHtml(task.title)}</h3>
         <p style="font-size: 12px; color: #a8a8a8; margin: 0;">Data de Entrega / Prova: <b>${task.due_date || 'Não definida'}</b></p>
       </div>
-      <button onclick="deleteTask('${task.id}')" style="background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;">Excluir</button>
+      <button onclick="deleteTask('${task.id}')" style="background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; flex-shrink: 0;">Excluir</button>
     `;
     container.appendChild(card);
   });
 }
 
+function setupRealtimeGlobalTasks() {
+  if (tasksSubscription) {
+    supabaseClient.removeChannel(tasksSubscription);
+  }
+
+  tasksSubscription = supabaseClient
+    .channel('public:tasks_realtime')
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'tasks'
+    }, () => {
+      loadTasks();
+      loadAllTasksView();
+      if (selectedSubjectId) {
+        loadSubjectTasks(selectedSubjectId);
+      }
+    })
+    .subscribe();
+}
+
+// ------------------------------------------------------------
+// 5. POSTAGENS / FEED
+// ------------------------------------------------------------
 async function loadPosts() {
   const container = document.getElementById('postsList');
   if (!container) return;
@@ -701,6 +759,9 @@ window.deletePost = async function(postId) {
   }
 };
 
+// ------------------------------------------------------------
+// 6. GRUPOS E COMUNIDADES
+// ------------------------------------------------------------
 async function loadGroups() {
   if (messageSubscription) {
     supabaseClient.removeChannel(messageSubscription);
@@ -731,12 +792,12 @@ async function loadGroups() {
     card.onclick = () => openGroupChat(group);
 
     card.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div>
-          <h3 style="color: var(--accent); margin-bottom: 4px;">👥 ${escapeHtml(group.name)}</h3>
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+        <div style="flex: 1; min-width: 0;">
+          <h3 style="color: var(--accent); margin-bottom: 4px; word-break: break-all;">👥 ${escapeHtml(group.name)}</h3>
           <p style="font-size: 13px; color: #a8a8a8; margin: 0;">Clique para abrir o chat do grupo.</p>
         </div>
-        <button class="primary" style="padding: 6px 14px; font-size: 12px;" onclick="event.stopPropagation(); openGroupChat({id: '${group.id}', name: '${group.name}'})">Entrar no Grupo</button>
+        <button class="primary" style="padding: 6px 14px; font-size: 12px; flex-shrink: 0;" onclick="event.stopPropagation(); openGroupChat({id: '${group.id}', name: '${group.name}'})">Entrar no Grupo</button>
       </div>
     `;
     groupsList.appendChild(card);
