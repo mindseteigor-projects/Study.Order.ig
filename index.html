@@ -16,19 +16,23 @@
       <p class="muted">Estudos, feed, grupos, IA e metas em um só lugar.</p>
       
       <div class="auth-tabs">
-        <button class="auth-tab active" data-auth="login">Entrar</button>
-        <button class="auth-tab" data-auth="signup">Criar conta</button>
+        <button type="button" class="auth-tab active" data-auth="login">Entrar</button>
+        <button type="button" class="auth-tab" data-auth="signup">Criar conta</button>
       </div>
 
-      <form id="authForm">
+      <form id="authForm" autocomplete="on">
         <div id="usernameFieldContainer" class="hidden">
-          <label>Nome de utilizador (Username)
-            <input id="usernameInput" type="text" placeholder="@seu_usuario (letras, números, _, -, #, *, @, .)">
+          <label for="usernameInput">Nome de utilizador (Username)
+            <input id="usernameInput" name="username" type="text" autocomplete="username" placeholder="@seu_usuario">
           </label>
         </div>
-        <label>E-mail<input id="email" type="email" required placeholder="voce@email.com"></label>
-        <label>Senha<input id="password" type="password" required minlength="6" placeholder="••••••••"></label>
-        <button class="primary full" id="authSubmit">Entrar</button>
+        <label for="email">E-mail
+          <input id="email" name="email" type="email" autocomplete="email" required placeholder="voce@email.com">
+        </label>
+        <label for="password">Senha
+          <input id="password" name="password" type="password" autocomplete="current-password" required minlength="6" placeholder="••••••••">
+        </label>
+        <button type="submit" class="primary full" id="authSubmit">Entrar</button>
       </form>
       <p id="authMsg" class="form-msg"></p>
     </div>
@@ -125,7 +129,7 @@
           </div>
         </div>
 
-        <!-- OUTRAS VIEWS DA APLICAÇÃO -->
+        <!-- 5. MATÉRIA DETALHADA -->
         <div id="subjectView" class="view hidden">
           <div class="page-title">
             <div><span class="eyebrow">MATÉRIA</span><h1 id="subjectTitle">Matemática</h1></div>
@@ -141,17 +145,18 @@
           </div>
         </div>
 
-        <div id="allNotesView" class="view hidden">
-          <div class="page-title"><div><span class="eyebrow">ANOTAÇÕES</span><h1>Todas as anotações</h1></div></div>
-          <div id="allNotes"></div>
-        </div>
-
+        <!-- 6. TODAS AS TAREFAS / AGENDA -->
         <div id="allTasksView" class="view hidden">
           <div class="page-title">
             <div><span class="eyebrow">AGENDA</span><h1>Provas, Lembretes e Tarefas</h1></div>
             <button id="globalNewTaskBtn" class="primary">＋ Nova Tarefa</button>
           </div>
           <div id="globalTasksList"></div>
+        </div>
+
+        <div id="allNotesView" class="view hidden">
+          <div class="page-title"><div><span class="eyebrow">ANOTAÇÕES</span><h1>Todas as anotações</h1></div></div>
+          <div id="allNotes"></div>
         </div>
       </section>
     </main>
