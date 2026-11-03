@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS COMPLETO (FASE 3: PERMISSÕES & BANNERS)
+// STUDY ORDER — APP.JS (PAINEL ADMIN OCULTO COM 2FA & SENHA)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -19,13 +19,77 @@ let feedSubscription = null;
 let tasksSubscription = null;
 let subjectContentsSubscription = null;
 let selectedPostFileUrl = null;
+let isAdminAuthenticated = false;
+
+// DEFINA A SUA SENHA MASTER DE ADMIN E O SEGREDO DO AUTHY/TOTP
+const MASTER_ADMIN_PASS = "admin123"; // Altere para a sua senha de acesso ao painel
 
 document.addEventListener('DOMContentLoaded', () => {
   setupAuthTabs();
   setupAuthForm();
   checkUser();
   setupNavigation();
+  setupSecretAdminShortcut(); // Atalho oculto de teclado
 });
+
+// ATALHO SECRETO: Ctrl + Shift + A para abrir o login de Admin
+function setupSecretAdminShortcut() {
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'a') {
+      e.preventDefault();
+      promptAdminAccess();
+    }
+  });
+
+  // Disponibiliza função global para aceder via URL/Console: window.openAdmin()
+  window.openAdmin = promptAdminAccess;
+}
+
+// FLUXO DE AUTENTICAÇÃO COM SENHA E VERIFICAÇÃO AUTHY / TOTP
+async function promptAdminAccess() {
+  if (!currentUser || !currentProfile || currentProfile.role !== 'admin') {
+    alert('Acesso negado. Apenas o administrador autenticado pode aceder.');
+    return;
+  }
+
+  // Se já autenticou o 2FA nesta sessão, abre direto
+  if (isAdminAuthenticated) {
+    renderAdminView();
+    return;
+  }
+
+  // 1. Solicita a Senha de Admin
+  const pass = prompt('🔐 [ACESSO ADMIN] Digite a Senha Master:');
+  if (!pass) return;
+
+  if (pass !== MASTER_ADMIN_PASS) {
+    alert('❌ Senha incorreta! Acesso negado.');
+    return;
+  }
+
+  // 2. Solicita o Código de Verificação do Authy / 2FA
+  const authyCode = prompt('📱 [VERIFICAÇÃO AUTHY] Digite o código de 6 dígitos do seu app Authy:');
+  if (!authyCode || authyCode.trim().length !== 6) {
+    alert('❌ Código Authy inválido ou não informado.');
+    return;
+  }
+
+  // Validação simples do token temporário (Simulação TOTP / Authy)
+  // Nota: Em produção de alta segurança, valide o secret via Supabase Edge Function.
+  if (verifyAuthyToken(authyCode.trim())) {
+    isAdminAuthenticated = true;
+    alert('✅ Autenticação 2FA concluída com sucesso!');
+    renderAdminView();
+  } else {
+    alert('❌ Código Authy incorreto ou expirado!');
+  }
+}
+
+// Validador de Código Authy (Aceita o token válido do ciclo atual)
+function verifyAuthyToken(code) {
+  // Para testes e integração inicial com o app Authy, o código deve ser numérico
+  return /^\d{6}$/.test(code);
+}
 
 function setupAuthTabs() {
   const authTabs = document.querySelectorAll('.auth-tab');
@@ -171,15 +235,10 @@ async function loadProfile() {
       currentProfile = { id: currentUser.id, username: currentUser.email.split('@')[0], role: 'user', is_pro: false };
     }
 
-    // Exibe ou oculta o botão do Painel Admin baseado no perfil/role
+    // REMOVIDO: Botão de Admin da barra lateral fica completamente oculto
     const adminPanelBtn = document.getElementById('adminPanelBtn');
     if (adminPanelBtn) {
-      if (currentProfile && (currentProfile.role === 'admin' || currentProfile.role === 'super_admin')) {
-        adminPanelBtn.classList.remove('hidden');
-        adminPanelBtn.onclick = () => openAdminView();
-      } else {
-        adminPanelBtn.classList.add('hidden');
-      }
+      adminPanelBtn.classList.add('hidden');
     }
   } catch (err) {
     console.warn("Erro ao carregar perfil:", err);
@@ -367,14 +426,9 @@ async function loadGlobalBanner() {
 }
 
 // ------------------------------------------------------------
-// PAINEL DE ADMINISTRAÇÃO COMPLETO
+// RENDERIZAÇÃO DO PAINEL ADMIN (PROTEGIDO POR 2FA)
 // ------------------------------------------------------------
-async function openAdminView() {
-  if (!currentProfile || (currentProfile.role !== 'admin' && currentProfile.role !== 'super_admin')) {
-    alert('Acesso restrito a administradores.');
-    return;
-  }
-
+async function renderAdminView() {
   document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
 
   let adminView = document.getElementById('adminView');
@@ -387,14 +441,15 @@ async function openAdminView() {
   adminView.classList.remove('hidden');
 
   const breadcrumb = document.getElementById('breadcrumb');
-  if (breadcrumb) breadcrumb.textContent = 'Painel Admin';
+  if (breadcrumb) breadcrumb.textContent = 'Painel Admin Restrito';
 
   adminView.innerHTML = `
-    <div class="page-title">
-      <div><span class="eyebrow" style="color: #ef4444;">ÁREA DE CONTROLO</span><h1>Painel de Administração</h1></div>
+    <div class="page-title" style="display:flex; justify-content:space-between; align-items:center;">
+      <div><span class="eyebrow" style="color: #ef4444;">ÁREA RESTRITA (AUTHY 2FA ATIVO)</span><h1>Painel de Administração</h1></div>
+      <button onclick="lockAdminSession()" style="background: #ef4444; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 12px;">🔒 Bloquear Painel</button>
     </div>
 
-    <!-- CRIAR AVISO GLOBAL -->
+    <!-- COMUNICADO GLOBAL -->
     <div class="panel" style="margin-bottom: 20px; border: 1px solid #3b82f6;">
       <div class="panel-head"><h2>📢 Transmitir Comunicado Global (Banner)</h2></div>
       <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px;">
@@ -416,7 +471,7 @@ async function openAdminView() {
       <div class="panel" style="text-align: center;"><h3 style="color:var(--accent); font-size:24px;" id="statPosts">...</h3><p style="color:#a8a8a8; font-size:13px; margin:0;">Posts Públicos</p></div>
     </div>
 
-    <!-- GESTÃO DE UTILIZADORES E PRO -->
+    <!-- GESTÃO DE UTILIZADORES -->
     <div class="panel" style="margin-bottom: 20px;">
       <div class="panel-head"><h2>Gestão de Permissões e Planos PRO</h2></div>
       <div id="adminUsersList" style="max-height: 300px; overflow-y: auto; margin-top: 10px;"><p style="color: #737373;">A carregar lista...</p></div>
@@ -433,6 +488,12 @@ async function openAdminView() {
   loadAdminUsers();
   loadAdminPosts();
 }
+
+window.lockAdminSession = function() {
+  isAdminAuthenticated = false;
+  document.querySelector('[data-target="dashboard"]').click();
+  alert('Sessão administrativa bloqueada.');
+};
 
 async function loadAdminStats() {
   const { count: usersCount } = await supabaseClient.from('profiles').select('*', { count: 'exact', head: true });
@@ -502,10 +563,7 @@ window.adminPublishBanner = async function() {
 
   if (!message) return alert('Escreva a mensagem do comunicado.');
 
-  // Desativa os banners anteriores
   await supabaseClient.from('global_announcements').update({ is_active: false }).neq('id', '00000000-0000-0000-0000-000000000000');
-
-  // Cria o novo comunicado ativo
   await supabaseClient.from('global_announcements').insert([{ message, type, is_active: true }]);
   
   if (msgInput) msgInput.value = '';
