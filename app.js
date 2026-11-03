@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS COMPLETO E DEFINITIVO
+// STUDY ORDER — APP.JS COMPLETO, CORRIGIDO E DEFINITIVO
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -59,14 +59,10 @@ function setupAuthForm() {
   const authSubmit = document.getElementById('authSubmit');
   const authMsg = document.getElementById('authMsg');
 
-  if (!authSubmit) {
-    console.error("Botão #authSubmit não encontrado no DOM!");
-    return;
-  }
+  if (!authSubmit) return;
 
   const executeLoginOrSignup = async (e) => {
     if (e) e.preventDefault();
-    console.log("Botão de autenticação acionado!");
 
     const emailInput = document.getElementById('email');
     const passwordInput = document.getElementById('password');
@@ -120,18 +116,13 @@ function setupAuthForm() {
         }
       }
     } catch (err) {
-      console.error("Erro detalhado na autenticação:", err);
+      console.error("Erro na autenticação:", err);
       if (authMsg) authMsg.textContent = 'Erro: ' + (err.message || 'Falha na autenticação.');
     }
   };
 
-  if (authForm) {
-    authForm.onsubmit = executeLoginOrSignup;
-  }
-  
-  authSubmit.onclick = (e) => {
-    executeLoginOrSignup(e);
-  };
+  if (authForm) authForm.onsubmit = executeLoginOrSignup;
+  authSubmit.onclick = (e) => { executeLoginOrSignup(e); };
 }
 
 async function checkUser() {
@@ -330,7 +321,9 @@ function initAppFeatures() {
   }
 }
 
-// Matérias e Detalhes
+// ------------------------------------------------------------
+// MATÉRIAS E DETALHES
+// ------------------------------------------------------------
 async function loadSubjects() {
   const subjectNav = document.getElementById('subjectNav');
   const subjectCards = document.getElementById('subjectCards');
@@ -373,6 +366,25 @@ function openSubjectView(sub) {
   if (titleEl) titleEl.textContent = sub.name;
 
   loadSubjectDetails(sub.id);
+  setupRealtimeSubjectDetails(sub.id);
+}
+
+function setupRealtimeSubjectDetails(subjectId) {
+  if (subjectContentsSubscription) {
+    supabaseClient.removeChannel(subjectContentsSubscription);
+  }
+
+  subjectContentsSubscription = supabaseClient
+    .channel(`public:subject_contents:subject_id=eq.${subjectId}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'subject_contents', filter: `subject_id=eq.${subjectId}` }, () => {
+      loadSubjectLinksAndFiles(subjectId);
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks', filter: `subject_id=eq.${subjectId}` }, () => {
+      loadSubjectTasks(subjectId);
+      loadTasks();
+      loadAllTasksView();
+    })
+    .subscribe();
 }
 
 async function loadSubjectDetails(subjectId) {
@@ -400,7 +412,73 @@ async function loadSubjectDetails(subjectId) {
     };
   }
 
+  const handleNewTask = async () => {
+    const title = prompt('Nome da prova, lembrete ou tarefa:');
+    if (!title) return;
+    const due_date = prompt('Data de entrega (AAAA-MM-DD):', new Date().toISOString().split('T')[0]);
+
+    const { error } = await supabaseClient.from('tasks').insert([
+      { user_id: currentUser.id, subject_id: subjectId, title, due_date }
+    ]);
+
+    if (error) {
+      alert('Erro ao criar tarefa: ' + error.message);
+    } else {
+      loadSubjectTasks(subjectId);
+      loadTasks();
+      loadAllTasksView();
+    }
+  };
+
+  const newTaskBtn = document.getElementById('newTaskBtn');
+  const newTaskBtn2 = document.getElementById('newTaskBtn2');
+  if (newTaskBtn) newTaskBtn.onclick = handleNewTask;
+  if (newTaskBtn2) newTaskBtn2.onclick = handleNewTask;
+
   loadSubjectTasks(subjectId);
+
+  const newLinkBtn = document.getElementById('newLinkBtn');
+  if (newLinkBtn) {
+    newLinkBtn.onclick = async () => {
+      const title = prompt('Título do link ou vídeo:');
+      const url = prompt('URL (link do site ou vídeo):');
+      if (!title || !url) return;
+
+      await supabaseClient.from('subject_contents').insert([
+        { subject_id: subjectId, user_id: currentUser.id, title, type: url.includes('youtube') ? 'video' : 'link', url, content: title }
+      ]);
+    };
+  }
+
+  const fileInput = document.getElementById('fileInput');
+  if (fileInput) {
+    fileInput.onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      alert('A carregar arquivo para o storage...');
+      const fileExt = file.name.split('.').pop();
+      const fileName = `sub_${Date.now()}.${fileExt}`;
+      const filePath = `subjects/${fileName}`;
+
+      const { error: uploadError } = await supabaseClient.storage.from('imagens').upload(filePath, file);
+      if (uploadError) {
+        alert('Erro ao enviar arquivo: ' + uploadError.message);
+        return;
+      }
+
+      const { data: urlData } = supabaseClient.storage.from('imagens').getPublicUrl(filePath);
+      const url = urlData.publicUrl;
+      const fileType = file.type.startsWith('image/') ? 'image' : 'file';
+
+      await supabaseClient.from('subject_contents').insert([
+        { subject_id: subjectId, user_id: currentUser.id, title: file.name, type: fileType, url, content: file.name }
+      ]);
+
+      alert('Arquivo enviado com sucesso!');
+    };
+  }
+
   loadSubjectLinksAndFiles(subjectId);
 }
 
@@ -439,8 +517,11 @@ async function loadSubjectLinksAndFiles(subjectId) {
     } else {
       links.forEach(l => {
         const div = document.createElement('div');
-        div.style.cssText = 'padding: 8px 0; font-size: 13px; border-bottom: 1px solid #262626; display:flex; justify-content:space-between; align-items:center;';
-        div.innerHTML = `<a href="${l.url}" target="_blank" style="color: var(--accent); text-decoration: none; word-break: break-all; flex: 1;">🔗 ${escapeHtml(l.title)}</a>`;
+        div.style.cssText = 'padding: 8px 0; font-size: 13px; border-bottom: 1px solid #262626; display:flex; justify-content:space-between; align-items:center; gap: 10px;';
+        div.innerHTML = `
+          <a href="${l.url}" target="_blank" style="color: var(--accent); text-decoration: none; word-break: break-all; flex: 1;">🔗 ${escapeHtml(l.title)}</a>
+          <button onclick="deleteContent('${l.id}')" style="background:transparent; border:none; color:#ef4444; cursor:pointer; flex-shrink:0;">✕</button>
+        `;
         linksContainer.appendChild(div);
       });
     }
@@ -454,15 +535,46 @@ async function loadSubjectLinksAndFiles(subjectId) {
     } else {
       files.forEach(f => {
         const div = document.createElement('div');
-        div.style.cssText = 'padding: 8px 0; border-bottom: 1px solid #262626;';
-        div.innerHTML = `<a href="${f.url}" target="_blank" style="color: #38bdf8; text-decoration: none; word-break: break-all;">📄 ${escapeHtml(f.title)}</a>`;
+        div.style.cssText = 'padding: 12px 0; border-bottom: 1px solid #262626;';
+        
+        let previewHtml = '';
+        if (f.type === 'image' || (f.url && f.url.match(/\.(jpeg|jpg|png|gif|webp)$/i))) {
+          previewHtml = `
+            <div style="margin-bottom: 8px; font-weight: 500; font-size: 13px; display: flex; justify-content: space-between; align-items: center;">
+              <span style="color: #fff; word-break: break-all;">🖼️ ${escapeHtml(f.title)}</span>
+              <a href="${f.url}" target="_blank" style="color: #38bdf8; text-decoration: none; font-size: 12px; flex-shrink: 0;">🔍 Abrir original</a>
+            </div>
+            <div style="width: 100%; max-height: 280px; overflow: hidden; border-radius: 8px; background: #000; display: flex; justify-content: center; align-items: center;">
+              <a href="${f.url}" target="_blank" style="width: 100%; display: flex; justify-content: center;">
+                <img src="${f.url}" style="width: 100%; height: auto; max-height: 280px; object-fit: contain; display: block; cursor: pointer;" onerror="this.outerHTML='<p style=\'color: #ef4444; font-size: 12px; padding: 10px; margin:0;\'>⚠️ Erro ao carregar miniatura.</p>';">
+              </a>
+            </div>
+          `;
+        } else {
+          previewHtml = `<a href="${f.url}" target="_blank" style="color: #38bdf8; text-decoration: none; word-break: break-all;">📄 ${escapeHtml(f.title)} (Baixar/Ver)</a>`;
+        }
+
+        div.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap: 10px;">
+            <div style="flex:1; min-width: 0;">${previewHtml}</div>
+            <button onclick="deleteContent('${f.id}')" style="background:transparent; border:none; color:#ef4444; cursor:pointer; flex-shrink: 0;" title="Excluir">✕</button>
+          </div>
+        `;
         filesContainer.appendChild(div);
       });
     }
   }
 }
 
-// Tarefas Globais
+window.deleteContent = async function(contentId) {
+  if (confirm('Deseja excluir este item?')) {
+    await supabaseClient.from('subject_contents').delete().eq('id', contentId);
+  }
+};
+
+// ------------------------------------------------------------
+// TAREFAS GLOBAIS
+// ------------------------------------------------------------
 async function loadTasks() {
   const upcoming = document.getElementById('upcoming');
   if (!upcoming) return;
@@ -534,7 +646,9 @@ function setupRealtimeGlobalTasks() {
   }).subscribe();
 }
 
-// Feed de Posts
+// ------------------------------------------------------------
+// FEED DE POSTS
+// ------------------------------------------------------------
 async function loadPosts() {
   const container = document.getElementById('postsList');
   if (!container) return;
@@ -584,14 +698,27 @@ function setupRealtimeFeed() {
   }).subscribe();
 }
 
-// Grupos
+// ------------------------------------------------------------
+// GRUPOS E CHAT EM TEMPO REAL
+// ------------------------------------------------------------
 async function loadGroups() {
+  if (messageSubscription) {
+    supabaseClient.removeChannel(messageSubscription);
+    messageSubscription = null;
+  }
+  activeGroupId = null;
+
   const groupsList = document.getElementById('groupsList');
   if (!groupsList) return;
 
-  const { data: groups } = await supabaseClient.from('groups').select('*').order('created_at', { ascending: false });
-  groupsList.innerHTML = '';
+  const { data: groups, error } = await supabaseClient.from('groups').select('*').order('created_at', { ascending: false });
+  
+  if (error) {
+    groupsList.innerHTML = '<p style="color: #737373; font-size: 13px;">Crie a tabela "groups" no SQL Editor do Supabase primeiro.</p>';
+    return;
+  }
 
+  groupsList.innerHTML = '';
   if (!groups || groups.length === 0) {
     groupsList.innerHTML = '<p style="color: #737373; padding: 20px;">Nenhum grupo criado. Crie o primeiro acima!</p>';
     return;
@@ -600,14 +727,134 @@ async function loadGroups() {
   groups.forEach(group => {
     const card = document.createElement('div');
     card.className = 'panel';
-    card.style.cssText = 'margin-bottom: 12px; border: 1px solid #262626;';
+    card.style.cssText = 'margin-bottom: 12px; cursor: pointer; border: 1px solid #262626; transition: 0.2s;';
+    card.onclick = () => openGroupChat(group);
+
     card.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <h3 style="color: var(--accent); margin: 0;">👥 ${escapeHtml(group.name)}</h3>
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+        <div style="flex: 1; min-width: 0;">
+          <h3 style="color: var(--accent); margin-bottom: 4px; word-break: break-all;">👥 ${escapeHtml(group.name)}</h3>
+          <p style="font-size: 13px; color: #a8a8a8; margin: 0;">Clique para abrir o chat do grupo.</p>
+        </div>
+        <button class="primary" style="padding: 6px 14px; font-size: 12px; flex-shrink: 0;" onclick="event.stopPropagation(); openGroupChat({id: '${group.id}', name: '${group.name}'})">Entrar no Grupo</button>
       </div>
     `;
     groupsList.appendChild(card);
   });
+}
+
+function openGroupChat(group) {
+  activeGroupId = group.id;
+  const groupsList = document.getElementById('groupsList');
+  if (!groupsList) return;
+  
+  groupsList.innerHTML = `
+    <div class="panel" style="display: flex; flex-direction: column; height: 65vh; padding: 0; overflow: hidden; background: #0b0b0f;">
+      <div style="padding: 16px; background: #16161f; border-bottom: 1px solid #262626; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <h3 style="margin: 0; color: var(--accent);">👥 ${escapeHtml(group.name)}</h3>
+          <small style="color: #22c55e;">● Chat ao vivo</small>
+        </div>
+        <button onclick="loadGroups()" style="background: #262626; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer;">← Voltar aos Grupos</button>
+      </div>
+
+      <div id="chatMessages" style="flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
+        <p style="color: #737373; text-align: center;">A carregar mensagens...</p>
+      </div>
+
+      <div style="padding: 12px 16px; background: #16161f; border-top: 1px solid #262626; display: flex; gap: 10px;">
+        <input type="text" id="chatInput" placeholder="Escreva uma mensagem para o grupo..." style="flex: 1; background: #101017; color: white; border: 1px solid #353542; border-radius: 8px; padding: 10px; outline: none;" onkeydown="if(event.key === 'Enter') sendGroupMessage()">
+        <button onclick="sendGroupMessage()" class="primary" style="padding: 0 20px;">Enviar</button>
+      </div>
+    </div>
+  `;
+
+  loadGroupMessages(group.id);
+  setupRealtimeChat(group.id);
+}
+
+async function loadGroupMessages(groupId) {
+  const container = document.getElementById('chatMessages');
+  if (!container) return;
+
+  const { data: messages } = await supabaseClient
+    .from('group_messages')
+    .select('*, profiles:user_id (username)')
+    .eq('group_id', groupId)
+    .order('created_at', { ascending: true });
+
+  container.innerHTML = '';
+  if (!messages || messages.length === 0) {
+    container.innerHTML = '<p style="color: #737373; text-align: center; margin: auto;">Nenhuma mensagem neste grupo ainda. Seja o primeiro a enviar!</p>';
+    return;
+  }
+
+  messages.forEach(msg => appendMessageToChat(msg));
+  container.scrollTop = container.scrollHeight;
+}
+
+function appendMessageToChat(msg) {
+  const container = document.getElementById('chatMessages');
+  if (!container) return;
+
+  const emptyMsg = container.querySelector('p');
+  if (emptyMsg && emptyMsg.textContent.includes('Nenhuma mensagem')) {
+    emptyMsg.remove();
+  }
+
+  const isMe = msg.user_id === currentUser.id;
+  const msgDiv = document.createElement('div');
+  msgDiv.style.cssText = `max-width: 70%; padding: 10px 14px; border-radius: 10px; font-size: 13px; align-self: ${isMe ? 'flex-end' : 'flex-start'}; background: ${isMe ? '#2563eb' : '#1f1f2e'}; color: white; word-break: break-word;`;
+  
+  const username = msg.profiles?.username || 'utilizador';
+  msgDiv.innerHTML = `
+    <div style="font-size: 11px; font-weight: bold; color: ${isMe ? '#93c5fd' : '#38bdf8'}; margin-bottom: 2px;">@${username}</div>
+    <div>${escapeHtml(msg.content)}</div>
+  `;
+  container.appendChild(msgDiv);
+  container.scrollTop = container.scrollHeight;
+}
+
+window.sendGroupMessage = async function() {
+  if (!activeGroupId) return;
+  const input = document.getElementById('chatInput');
+  const content = input ? input.value.trim() : '';
+  if (!content) return;
+
+  input.value = '';
+
+  await supabaseClient.from('group_messages').insert([
+    { group_id: activeGroupId, user_id: currentUser.id, content }
+  ]);
+}
+
+function setupRealtimeChat(groupId) {
+  if (messageSubscription) {
+    supabaseClient.removeChannel(messageSubscription);
+  }
+
+  messageSubscription = supabaseClient
+    .channel(`public:group_messages:group_id=eq.${groupId}`)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'group_messages',
+      filter: `group_id=eq.${groupId}`
+    }, async (payload) => {
+      const { data: profileData } = await supabaseClient
+        .from('profiles')
+        .select('username')
+        .eq('id', payload.new.user_id)
+        .maybeSingle();
+
+      const fullMessage = {
+        ...payload.new,
+        profiles: profileData || { username: 'utilizador' }
+      };
+
+      appendMessageToChat(fullMessage);
+    })
+    .subscribe();
 }
 
 function escapeHtml(text) {
