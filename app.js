@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS COMPLETO (COM SUPORTE A REALTIME E LAYOUT)
+// STUDY ORDER — APP.JS COMPLETO E DEFINITIVO
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -390,6 +390,7 @@ function setupRealtimeSubjectDetails(subjectId) {
     }, () => {
       loadSubjectTasks(subjectId);
       loadTasks();
+      loadAllTasksView();
     })
     .subscribe();
 }
@@ -516,7 +517,6 @@ async function loadSubjectLinksAndFiles(subjectId) {
     } else {
       links.forEach(l => {
         const div = document.createElement('div');
-        // Estilo com overflow-wrap e word-break para impedir que o link estique o painel
         div.style.cssText = 'padding: 8px 0; font-size: 13px; border-bottom: 1px solid #262626; display:flex; justify-content:space-between; align-items:center; gap: 10px;';
         div.innerHTML = `
           <a href="${l.url}" target="_blank" style="color: var(--accent); text-decoration: none; word-break: break-all; overflow-wrap: break-word; flex: 1;">🔗 ${escapeHtml(l.title)} <br><small style="color: #888; font-size: 11px;">${escapeHtml(l.url)}</small></a>
@@ -732,193 +732,3 @@ function setupRealtimeFeed() {
       const { data: profileData } = await supabaseClient
         .from('profiles')
         .select('username')
-        .eq('id', payload.new.user_id)
-        .maybeSingle();
-
-      const fullPost = {
-        ...payload.new,
-        profiles: profileData || { username: 'utilizador' }
-      };
-
-      renderPostCard(fullPost);
-    })
-    .on('postgres_changes', {
-      event: 'DELETE',
-      schema: 'public',
-      table: 'posts'
-    }, (payload) => {
-      const cardToRemove = document.getElementById(`post-${payload.old.id}`);
-      if (cardToRemove) cardToRemove.remove();
-    })
-    .subscribe();
-}
-
-window.deletePost = async function(postId) {
-  if (confirm('Tem certeza que deseja excluir esta publicação?')) {
-    await supabaseClient.from('posts').delete().eq('id', postId);
-  }
-};
-
-// ------------------------------------------------------------
-// 6. GRUPOS E COMUNIDADES
-// ------------------------------------------------------------
-async function loadGroups() {
-  if (messageSubscription) {
-    supabaseClient.removeChannel(messageSubscription);
-    messageSubscription = null;
-  }
-  activeGroupId = null;
-
-  const groupsList = document.getElementById('groupsList');
-  if (!groupsList) return;
-
-  const { data: groups, error } = await supabaseClient.from('groups').select('*').order('created_at', { ascending: false });
-  
-  if (error) {
-    groupsList.innerHTML = '<p style="color: #737373; font-size: 13px;">Crie a tabela "groups" no SQL Editor do Supabase primeiro.</p>';
-    return;
-  }
-
-  groupsList.innerHTML = '';
-  if (!groups || groups.length === 0) {
-    groupsList.innerHTML = '<p style="color: #737373; padding: 20px;">Nenhum grupo criado. Crie o primeiro acima!</p>';
-    return;
-  }
-
-  groups.forEach(group => {
-    const card = document.createElement('div');
-    card.className = 'panel';
-    card.style.cssText = 'margin-bottom: 12px; cursor: pointer; border: 1px solid #262626; transition: 0.2s;';
-    card.onclick = () => openGroupChat(group);
-
-    card.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-        <div style="flex: 1; min-width: 0;">
-          <h3 style="color: var(--accent); margin-bottom: 4px; word-break: break-all;">👥 ${escapeHtml(group.name)}</h3>
-          <p style="font-size: 13px; color: #a8a8a8; margin: 0;">Clique para abrir o chat do grupo.</p>
-        </div>
-        <button class="primary" style="padding: 6px 14px; font-size: 12px; flex-shrink: 0;" onclick="event.stopPropagation(); openGroupChat({id: '${group.id}', name: '${group.name}'})">Entrar no Grupo</button>
-      </div>
-    `;
-    groupsList.appendChild(card);
-  });
-}
-
-function openGroupChat(group) {
-  activeGroupId = group.id;
-  const groupsList = document.getElementById('groupsList');
-  if (!groupsList) return;
-  
-  groupsList.innerHTML = `
-    <div class="panel" style="display: flex; flex-direction: column; height: 65vh; padding: 0; overflow: hidden; background: #0b0b0f;">
-      <div style="padding: 16px; background: #16161f; border-bottom: 1px solid #262626; display: flex; justify-content: space-between; align-items: center;">
-        <div>
-          <h3 style="margin: 0; color: var(--accent);">👥 ${escapeHtml(group.name)}</h3>
-          <small style="color: #22c55e;">● Chat ao vivo</small>
-        </div>
-        <button onclick="loadGroups()" style="background: #262626; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer;">← Voltar aos Grupos</button>
-      </div>
-
-      <div id="chatMessages" style="flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
-        <p style="color: #737373; text-align: center;">A carregar mensagens...</p>
-      </div>
-
-      <div style="padding: 12px 16px; background: #16161f; border-top: 1px solid #262626; display: flex; gap: 10px;">
-        <input type="text" id="chatInput" placeholder="Escreva uma mensagem para o grupo..." style="flex: 1; background: #101017; color: white; border: 1px solid #353542; border-radius: 8px; padding: 10px; outline: none;" onkeydown="if(event.key === 'Enter') sendGroupMessage()">
-        <button onclick="sendGroupMessage()" class="primary" style="padding: 0 20px;">Enviar</button>
-      </div>
-    </div>
-  `;
-
-  loadGroupMessages(group.id);
-  setupRealtimeChat(group.id);
-}
-
-async function loadGroupMessages(groupId) {
-  const container = document.getElementById('chatMessages');
-  if (!container) return;
-
-  const { data: messages } = await supabaseClient
-    .from('group_messages')
-    .select('*, profiles:user_id (username)')
-    .eq('group_id', groupId)
-    .order('created_at', { ascending: true });
-
-  container.innerHTML = '';
-  if (!messages || messages.length === 0) {
-    container.innerHTML = '<p style="color: #737373; text-align: center; margin: auto;">Nenhuma mensagem neste grupo ainda. Seja o primeiro a enviar!</p>';
-    return;
-  }
-
-  messages.forEach(msg => appendMessageToChat(msg));
-  container.scrollTop = container.scrollHeight;
-}
-
-function appendMessageToChat(msg) {
-  const container = document.getElementById('chatMessages');
-  if (!container) return;
-
-  const emptyMsg = container.querySelector('p');
-  if (emptyMsg && emptyMsg.textContent.includes('Nenhuma mensagem')) {
-    emptyMsg.remove();
-  }
-
-  const isMe = msg.user_id === currentUser.id;
-  const msgDiv = document.createElement('div');
-  msgDiv.style.cssText = `max-width: 70%; padding: 10px 14px; border-radius: 10px; font-size: 13px; align-self: ${isMe ? 'flex-end' : 'flex-start'}; background: ${isMe ? '#2563eb' : '#1f1f2e'}; color: white; word-break: break-word;`;
-  
-  const username = msg.profiles?.username || 'utilizador';
-  msgDiv.innerHTML = `
-    <div style="font-size: 11px; font-weight: bold; color: ${isMe ? '#93c5fd' : '#38bdf8'}; margin-bottom: 2px;">@${username}</div>
-    <div>${escapeHtml(msg.content)}</div>
-  `;
-  container.appendChild(msgDiv);
-  container.scrollTop = container.scrollHeight;
-}
-
-window.sendGroupMessage = async function() {
-  if (!activeGroupId) return;
-  const input = document.getElementById('chatInput');
-  const content = input ? input.value.trim() : '';
-  if (!content) return;
-
-  input.value = '';
-
-  await supabaseClient.from('group_messages').insert([
-    { group_id: activeGroupId, user_id: currentUser.id, content }
-  ]);
-}
-
-function setupRealtimeChat(groupId) {
-  if (messageSubscription) {
-    supabaseClient.removeChannel(messageSubscription);
-  }
-
-  messageSubscription = supabaseClient
-    .channel(`public:group_messages:group_id=eq.${groupId}`)
-    .on('postgres_changes', {
-      event: 'INSERT',
-      schema: 'public',
-      table: 'group_messages',
-      filter: `group_id=eq.${groupId}`
-    }, async (payload) => {
-      const { data: profileData } = await supabaseClient
-        .from('profiles')
-        .select('username')
-        .eq('id', payload.new.user_id)
-        .maybeSingle();
-
-      const fullMessage = {
-        ...payload.new,
-        profiles: profileData || { username: 'utilizador' }
-      };
-
-      appendMessageToChat(fullMessage);
-    })
-    .subscribe();
-}
-
-function escapeHtml(text) {
-  if (!text) return '';
-  return text.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
-}
