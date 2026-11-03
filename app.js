@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS COMPLETO, CORRIGIDO E DEFINITIVO
+// STUDY ORDER — APP.JS COMPLETO (TAREFAS LIVRES)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -300,15 +300,16 @@ function initAppFeatures() {
     };
   }
 
+  // CRIAÇÃO DE TAREFA/LEMBRETE GLOBAL (SEM EXIGIR MATÉRIA)
   const globalNewTaskBtn = document.getElementById('globalNewTaskBtn');
   if (globalNewTaskBtn) {
     globalNewTaskBtn.onclick = async () => {
-      const title = prompt('Nome da prova, lembrete ou tarefa:');
+      const title = prompt('Nome do lembrete, prova ou tarefa:');
       if (!title) return;
       const due_date = prompt('Data de entrega (AAAA-MM-DD):', new Date().toISOString().split('T')[0]);
 
       const { error } = await supabaseClient.from('tasks').insert([
-        { user_id: currentUser.id, title, due_date }
+        { user_id: currentUser.id, title, due_date, subject_id: null }
       ]);
 
       if (error) {
