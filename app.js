@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS (DIAGNÓSTICO DE LOGIN)
+// STUDY ORDER — APP.JS
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -10,8 +10,8 @@ try {
   supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
   });
-} catch (e) {
-  console.error("Erro ao iniciar Supabase:", e);
+} catch (err) {
+  console.error("Erro ao inicializar Supabase Client:", err);
 }
 
 let currentUser = null;
@@ -29,7 +29,6 @@ let isAdminAuthenticated = false;
 const MASTER_TOTP_SECRET = "JBSWY3DPEHPK3PXP"; 
 
 document.addEventListener('DOMContentLoaded', () => {
-  console.log("DOM carregado com sucesso.");
   setupAuthTabs();
   setupAuthForm();
   checkUser();
@@ -74,7 +73,7 @@ async function promptAdminAccess() {
 
   try {
     if (typeof window.otplib === 'undefined') {
-      alert('Erro: Biblioteca TOTP não carregada.');
+      alert('Erro: Biblioteca TOTP não carregada. Verifique o index.html.');
       return;
     }
 
@@ -126,16 +125,13 @@ function setupAuthForm() {
   const authSubmit = document.getElementById('authSubmit');
   const authMsg = document.getElementById('authMsg');
 
-  if (!authSubmit) {
-    console.error("Elemento #authSubmit não encontrado no DOM!");
-    return;
-  }
+  if (!authSubmit) return;
 
   const executeLoginOrSignup = async (e) => {
-    if (e) e.preventDefault();
-    console.log("Botão de submit/clique acionado!");
-
-    if (authMsg) authMsg.textContent = 'A validar dados...';
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
 
     const emailInput = document.getElementById('email');
     const passwordInput = document.getElementById('password');
@@ -151,9 +147,11 @@ function setupAuthForm() {
     }
 
     if (!supabaseClient) {
-      if (authMsg) authMsg.textContent = 'Erro: Supabase não inicializado.';
+      if (authMsg) authMsg.textContent = 'Erro de inicialização do cliente Supabase.';
       return;
     }
+
+    if (authMsg) authMsg.textContent = 'A processar...';
 
     try {
       if (activeAuthMode === 'signup') {
@@ -162,7 +160,6 @@ function setupAuthForm() {
           return;
         }
 
-        if (authMsg) authMsg.textContent = 'A criar conta no Supabase...';
         const { data, error } = await supabaseClient.auth.signUp({
           email,
           password,
@@ -180,17 +177,9 @@ function setupAuthForm() {
         alert('Conta criada com sucesso! Faça login.');
         location.reload();
       } else {
-        if (authMsg) authMsg.textContent = 'A contactar Supabase (Login)...';
-        console.log("A executar signInWithPassword para:", email);
-
         const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+        if (error) throw error;
         
-        if (error) {
-          console.error("Erro retornado pelo Supabase:", error);
-          throw error;
-        }
-        
-        console.log("Resposta de sucesso do login:", data);
         if (data?.session || data?.user) {
           currentUser = data.session ? data.session.user : data.user;
           showAppScreen();
@@ -201,19 +190,32 @@ function setupAuthForm() {
         }
       }
     } catch (err) {
-      console.error("Exceção capturada no login:", err);
+      console.error("Erro na autenticação:", err);
       if (authMsg) authMsg.textContent = 'Erro: ' + (err.message || 'Falha na autenticação.');
     }
   };
 
-  // Atribui o evento tanto ao formulário quanto diretamente ao clique do botão
   if (authForm) {
-    authForm.onsubmit = executeLoginOrSignup;
+    authForm.onsubmit = (e) => {
+      e.preventDefault();
+      executeLoginOrSignup(e);
+      return false;
+    };
   }
-  
+
   authSubmit.onclick = (e) => {
     executeLoginOrSignup(e);
   };
+
+  const passwordField = document.getElementById('password');
+  if (passwordField) {
+    passwordField.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        executeLoginOrSignup(e);
+      }
+    };
+  }
 }
 
 async function checkUser() {
@@ -762,287 +764,4 @@ async function loadSubjectLinksAndFiles(subjectId) {
             </div>
             <div style="width: 100%; max-height: 280px; overflow: hidden; border-radius: 8px; background: #000; display: flex; justify-content: center; align-items: center;">
               <a href="${f.url}" target="_blank" style="width: 100%; display: flex; justify-content: center;">
-                <img src="${f.url}" style="width: 100%; height: auto; max-height: 280px; object-fit: contain; display: block; cursor: pointer;" onerror="this.outerHTML='<p style=\'color: #ef4444; font-size: 12px; padding: 10px; margin:0;\'>⚠️ Erro ao carregar miniatura.</p>';">
-              </a>
-            </div>
-          `;
-        } else {
-          previewHtml = `<a href="${f.url}" target="_blank" style="color: #38bdf8; text-decoration: none; word-break: break-all;">📄 ${escapeHtml(f.title)} (Baixar/Ver)</a>`;
-        }
-
-        div.innerHTML = `
-          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap: 10px;">
-            <div style="flex:1; min-width: 0;">${previewHtml}</div>
-            <button onclick="deleteContent('${f.id}')" style="background:transparent; border:none; color:#ef4444; cursor:pointer; flex-shrink: 0;" title="Excluir">✕</button>
-          </div>
-        `;
-        filesContainer.appendChild(div);
-      });
-    }
-  }
-}
-
-window.deleteContent = async function(contentId) {
-  if (confirm('Deseja excluir este item?')) {
-    await supabaseClient.from('subject_contents').delete().eq('id', contentId);
-  }
-};
-
-async function loadTasks() {
-  const upcoming = document.getElementById('upcoming');
-  if (!upcoming) return;
-
-  const { data: tasks } = await supabaseClient.from('tasks').select('*').eq('user_id', currentUser.id).limit(5);
-  upcoming.innerHTML = '';
-
-  if (!tasks || tasks.length === 0) {
-    upcoming.innerHTML = '<p style="color: #737373; font-size: 13px;">Nenhuma tarefa agendada.</p>';
-    return;
-  }
-
-  tasks.forEach(t => {
-    const item = document.createElement('div');
-    item.style.cssText = 'padding: 10px 0; border-bottom: 1px solid #262626; font-size: 13px; display:flex; justify-content:space-between; align-items:center; gap: 10px;';
-    item.innerHTML = `
-      <div style="word-break: break-all; flex: 1;"><b>${escapeHtml(t.title)}</b></div>
-      <span style="color: var(--accent); flex-shrink: 0;">${t.due_date || ''}</span>
-    `;
-    upcoming.appendChild(item);
-  });
-}
-
-async function loadAllTasksView() {
-  const container = document.getElementById('globalTasksList');
-  if (!container) return;
-
-  const { data: tasks, error } = await supabaseClient
-    .from('tasks')
-    .select('*')
-    .eq('user_id', currentUser.id)
-    .order('due_date', { ascending: true });
-
-  container.innerHTML = '';
-
-  if (error || !tasks || tasks.length === 0) {
-    container.innerHTML = '<p style="color: #737373; padding: 20px;">Nenhuma prova ou tarefa registada.</p>';
-    return;
-  }
-
-  tasks.forEach(task => {
-    const card = document.createElement('div');
-    card.className = 'panel';
-    card.style.cssText = 'margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; gap: 15px; background: #121216; border: 1px solid #262626; border-radius: 8px; padding: 14px;';
-    card.innerHTML = `
-      <div style="flex: 1; word-break: break-all;">
-        <h3 style="color: var(--accent); margin-bottom: 4px; font-size: 15px;">${escapeHtml(task.title)}</h3>
-        <p style="font-size: 12px; color: #a8a8a8; margin: 0;">Data de Entrega / Prova: <b>${task.due_date || 'Não definida'}</b></p>
-      </div>
-      <button onclick="deleteTask('${task.id}')" style="background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; flex-shrink: 0;">Excluir</button>
-    `;
-    container.appendChild(card);
-  });
-}
-
-window.deleteTask = async function(taskId) {
-  if (confirm('Deseja excluir esta tarefa?')) {
-    await supabaseClient.from('tasks').delete().eq('id', taskId);
-    loadTasks();
-    loadAllTasksView();
-  }
-};
-
-function setupRealtimeGlobalTasks() {
-  if (tasksSubscription) supabaseClient.removeChannel(tasksSubscription);
-  tasksSubscription = supabaseClient.channel('public:tasks_realtime').on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
-    loadTasks();
-    loadAllTasksView();
-  }).subscribe();
-}
-
-async function loadPosts() {
-  const container = document.getElementById('postsList');
-  if (!container) return;
-
-  const { data: posts } = await supabaseClient.from('posts').select(`*, profiles:user_id (username)`).order('created_at', { ascending: false });
-  container.innerHTML = '';
-
-  if (!posts || posts.length === 0) {
-    container.innerHTML = '<p style="text-align: center; color: #737373; padding: 40px 0;">Nenhuma publicação ainda.</p>';
-    return;
-  }
-
-  posts.forEach(post => renderPostCard(post));
-}
-
-function renderPostCard(post) {
-  const container = document.getElementById('postsList');
-  if (!container) return;
-
-  const card = document.createElement('div');
-  card.className = 'panel';
-  card.style.marginBottom = '14px';
-
-  let mediaRender = '';
-  if (post.media_url && post.media_url.trim() !== '') {
-    mediaRender = `
-      <div style="margin-top: 12px; width: 100%; max-height: 450px; overflow: hidden; border-radius: 8px;">
-        <a href="${post.media_url}" target="_blank"><img src="${post.media_url}" style="width: 100%; height: auto; max-height: 450px; object-fit: cover; display: block;"></a>
-      </div>`;
-  }
-
-  card.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-      <span style="font-weight: 600; color: var(--accent);">@${post.profiles?.username || 'utilizador'}</span>
-    </div>
-    <div style="font-size: 14px; line-height: 1.4; word-break: break-word;">${escapeHtml(post.content)}</div>${mediaRender}
-  `;
-
-  container.appendChild(card);
-}
-
-function setupRealtimeFeed() {
-  if (feedSubscription) supabaseClient.removeChannel(feedSubscription);
-  feedSubscription = supabaseClient.channel('public:posts_fast_sync').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, () => {
-    loadPosts();
-  }).subscribe();
-}
-
-async function loadGroups() {
-  if (messageSubscription) {
-    supabaseClient.removeChannel(messageSubscription);
-    messageSubscription = null;
-  }
-  activeGroupId = null;
-
-  const groupsList = document.getElementById('groupsList');
-  if (!groupsList) return;
-
-  const { data: groups, error } = await supabaseClient.from('groups').select('*').order('created_at', { ascending: false });
-  
-  if (error) {
-    groupsList.innerHTML = '<p style="color: #737373; font-size: 13px;">Crie a tabela "groups" no SQL Editor do Supabase primeiro.</p>';
-    return;
-  }
-
-  groupsList.innerHTML = '';
-  if (!groups || groups.length === 0) {
-    groupsList.innerHTML = '<p style="color: #737373; padding: 20px;">Nenhum grupo criado. Crie o primeiro acima!</p>';
-    return;
-  }
-
-  groups.forEach(group => {
-    const card = document.createElement('div');
-    card.className = 'panel';
-    card.style.cssText = 'margin-bottom: 12px; cursor: pointer; border: 1px solid #262626; transition: 0.2s;';
-    card.onclick = () => openGroupChat(group);
-
-    card.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-        <div style="flex: 1; min-width: 0;">
-          <h3 style="color: var(--accent); margin-bottom: 4px; word-break: break-all;">👥 ${escapeHtml(group.name)}</h3>
-          <p style="font-size: 13px; color: #a8a8a8; margin: 0;">Clique para abrir o chat do grupo.</p>
-        </div>
-        <button class="primary" style="padding: 6px 14px; font-size: 12px; flex-shrink: 0;" onclick="event.stopPropagation(); openGroupChat({id: '${group.id}', name: '${group.name}'})">Entrar no Grupo</button>
-      </div>
-    `;
-    groupsList.appendChild(card);
-  });
-}
-
-function openGroupChat(group) {
-  activeGroupId = group.id;
-  const groupsList = document.getElementById('groupsList');
-  if (!groupsList) return;
-  
-  groupsList.innerHTML = `
-    <div class="panel" style="display: flex; flex-direction: column; height: 65vh; padding: 0; overflow: hidden; background: #0b0b0f;">
-      <div style="padding: 16px; background: #16161f; border-bottom: 1px solid #262626; display: flex; justify-content: space-between; align-items: center;">
-        <div>
-          <h3 style="margin: 0; color: var(--accent);">👥 ${escapeHtml(group.name)}</h3>
-          <small style="color: #22c55e;">● Chat ao vivo</small>
-        </div>
-        <button onclick="loadGroups()" style="background: #262626; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer;">← Voltar aos Grupos</button>
-      </div>
-
-      <div id="chatMessages" style="flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
-        <p style="color: #737373; text-align: center;">A carregar mensagens...</p>
-      </div>
-
-      <div style="padding: 12px 16px; background: #16161f; border-top: 1px solid #262626; display: flex; gap: 10px;">
-        <input type="text" id="chatInput" placeholder="Escreva uma mensagem para o grupo..." style="flex: 1; background: #101017; color: white; border: 1px solid #353542; border-radius: 8px; padding: 10px; outline: none;" onkeydown="if(event.key === 'Enter') sendGroupMessage()">
-        <button onclick="sendGroupMessage()" class="primary" style="padding: 0 20px;">Enviar</button>
-      </div>
-    </div>
-  `;
-
-  loadGroupMessages(group.id);
-  setupRealtimeChat(group.id);
-}
-
-async function loadGroupMessages(groupId) {
-  const container = document.getElementById('chatMessages');
-  if (!container) return;
-
-  const { data: messages } = await supabaseClient
-    .from('group_messages')
-    .select('*, profiles:user_id (username)')
-    .eq('group_id', groupId)
-    .order('created_at', { ascending: true });
-
-  container.innerHTML = '';
-  if (!messages || messages.length === 0) {
-    container.innerHTML = '<p style="color: #737373; text-align: center; margin: auto;">Nenhuma mensagem neste grupo ainda. Seja o primeiro a enviar!</p>';
-    return;
-  }
-
-  messages.forEach(msg => appendMessageToChat(msg));
-  container.scrollTop = container.scrollHeight;
-}
-
-function appendMessageToChat(msg) {
-  const container = document.getElementById('chatMessages');
-  if (!container) return;
-
-  const emptyMsg = container.querySelector('p');
-  if (emptyMsg && emptyMsg.textContent.includes('Nenhuma mensagem')) {
-    emptyMsg.remove();
-  }
-
-  const isMe = msg.user_id === currentUser.id;
-  const msgDiv = document.createElement('div');
-  msgDiv.style.cssText = `max-width: 70%; padding: 10px 14px; border-radius: 10px; font-size: 13px; align-self: ${isMe ? 'flex-end' : 'flex-start'}; background: ${isMe ? '#2563eb' : '#1f1f2e'}; color: white; word-break: break-word;`;
-  
-  const username = msg.profiles?.username || 'utilizador';
-  msgDiv.innerHTML = `
-    <div style="font-size: 11px; font-weight: bold; color: ${isMe ? '#93c5fd' : '#38bdf8'}; margin-bottom: 2px;">@${username}</div>
-    <div>${escapeHtml(msg.content)}</div>
-  `;
-  container.appendChild(msgDiv);
-  container.scrollTop = container.scrollHeight;
-}
-
-window.sendGroupMessage = async function() {
-  if (!activeGroupId) return;
-  const input = document.getElementById('chatInput');
-  const content = input ? input.value.trim() : '';
-  if (!content) return;
-
-  input.value = '';
-
-  await supabaseClient.from('group_messages').insert([
-    { group_id: activeGroupId, user_id: currentUser.id, content }
-  ]);
-}
-
-function setupRealtimeChat(groupId) {
-  if (messageSubscription) {
-    supabaseClient.removeChannel(messageSubscription);
-  }
-
-  messageSubscription = supabaseClient
-    .channel(`public:group_messages:group_id=eq.${groupId}`)
-    .on('postgres_changes', {
-      event: 'INSERT',
-      schema: 'public',
-      table: 'group_messages',
-      filter: `group
+                <img src="${f.url
