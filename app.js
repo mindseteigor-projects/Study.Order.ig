@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS (COM AUTENTICAÇÃO 2FA / AUTHY REAL)
+// STUDY ORDER — APP.JS (COMPLETO E VERIFICADO)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -21,8 +21,6 @@ let subjectContentsSubscription = null;
 let selectedPostFileUrl = null;
 let isAdminAuthenticated = false;
 
-// Segredo mestre do TOTP/Authy (Guarde este segredo no seu Authy / Google Authenticator)
-// Na prática, pode ser configurado e guardado na tabela 'profiles' do Supabase.
 const MASTER_TOTP_SECRET = "JBSWY3DPEHPK3PXP"; 
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -43,7 +41,6 @@ function setupSecretAdminShortcut() {
   window.openAdmin = promptAdminAccess;
 }
 
-// ACESSO ADMIN COM 2FA REAL (AUTHY / TOTP)
 async function promptAdminAccess() {
   if (!currentUser || !currentProfile || currentProfile.role !== 'admin') {
     alert('Acesso negado. Apenas administradores autenticados.');
@@ -55,17 +52,14 @@ async function promptAdminAccess() {
     return;
   }
 
-  // 1. Senha Master de Administração
   const pass = prompt('🔐 [ADMIN MASTER] Insira a sua palavra-passe de administrador:');
   if (!pass) return;
 
-  // Substitua 'admin123' pela sua senha forte desejada
   if (pass !== 'admin123') {
     alert('❌ Palavra-passe incorreta!');
     return;
   }
 
-  // 2. Verificação Real do Código Authy / TOTP (6 dígitos)
   const token = prompt('📱 [AUTHY 2FA] Insira o código de 6 dígitos gerado no seu aplicativo Authy / Google Authenticator:');
   if (!token || token.trim().length !== 6) {
     alert('❌ Código de verificação inválido.');
@@ -73,14 +67,12 @@ async function promptAdminAccess() {
   }
 
   try {
-    // Validação real usando a biblioteca otplib integrada no navegador
-    // Se não tiver o otplib carregado no HTML, avisa o utilizador.
     if (typeof window.otplib === 'undefined') {
       alert('Erro: Biblioteca TOTP não carregada. Verifique a tag script no index.html.');
       return;
     }
 
-    window.otplib.authenticator.options = { window: 1 }; // Aceita margem de 30s de atraso de relógio
+    window.otplib.authenticator.options = { window: 1 };
     const isValid = window.otplib.authenticator.check(token.trim(), MASTER_TOTP_SECRET);
 
     if (isValid) {
@@ -605,9 +597,6 @@ window.adminDeletePost = async function(postId) {
   }
 };
 
-// ------------------------------------------------------------
-// MATÉRIAS E DETALHES
-// ------------------------------------------------------------
 async function loadSubjects() {
   const subjectNav = document.getElementById('subjectNav');
   const subjectCards = document.getElementById('subjectCards');
@@ -623,30 +612,4 @@ async function loadSubjects() {
     return;
   }
 
-  subjects.forEach(sub => {
-    const navBtn = document.createElement('button');
-    navBtn.className = 'side-action';
-    navBtn.textContent = `📓 ${sub.name}`;
-    navBtn.onclick = () => openSubjectView(sub);
-    subjectNav.appendChild(navBtn);
-
-    if (subjectCards) {
-      const card = document.createElement('div');
-      card.style.cssText = 'background: #121212; border: 1px solid #262626; border-radius: 10px; padding: 14px; cursor: pointer;';
-      card.onclick = () => openSubjectView(sub);
-      card.innerHTML = `<b style="color: #fff; font-size: 15px;">${escapeHtml(sub.name)}</b><br><small style="color: #38bdf8;">Ver anotações e tarefas</small>`;
-      subjectCards.appendChild(card);
-    }
-  });
-}
-
-function openSubjectView(sub) {
-  selectedSubjectId = sub.id;
-  document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
-  const subjectView = document.getElementById('subjectView');
-  if (subjectView) subjectView.classList.remove('hidden');
-
-  const titleEl = document.getElementById('subjectTitle');
-  if (titleEl) titleEl.textContent = sub.name;
-
-  load
+  subjects.
