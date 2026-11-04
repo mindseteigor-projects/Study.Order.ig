@@ -22,7 +22,7 @@
         <button type="button" class="auth-tab" data-auth="signup">Criar conta</button>
       </div>
 
-      <form id="authForm" autocomplete="on">
+      <form id="authForm" autocomplete="on" onsubmit="return false;">
         <div id="usernameFieldContainer" class="hidden">
           <label for="usernameInput">Nome de utilizador (Username)
             <input id="usernameInput" name="username" type="text" autocomplete="username" placeholder="@seu_usuario">
@@ -34,7 +34,7 @@
         <label for="password">Senha
           <input id="password" name="password" type="password" autocomplete="current-password" required minlength="6" placeholder="••••••••">
         </label>
-        <button type="submit" class="primary full" id="authSubmit">Entrar</button>
+        <button type="button" class="primary full" id="authSubmit">Entrar</button>
       </form>
       <p id="authMsg" class="form-msg"></p>
     </div>
