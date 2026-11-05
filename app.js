@@ -26,8 +26,6 @@ let subjectContentsSubscription = null;
 let selectedPostFileUrl = null;
 let isAdminAuthenticated = false;
 
-const MASTER_TOTP_SECRET = "JBSWY3DPEHPK3PXP"; 
-
 document.addEventListener('DOMContentLoaded', () => {
   setupAuthTabs();
   setupAuthForm();
@@ -47,17 +45,13 @@ function setupSecretAdminShortcut() {
 }
 
 async function promptAdminAccess() {
-  if (!currentUser || !currentProfile || currentProfile.role !== 'admin') {
-    alert('Acesso negado. Apenas administradores autenticados.');
-    return;
-  }
-
   if (isAdminAuthenticated) {
     renderAdminView();
     return;
   }
 
-  const pass = prompt('🔐 [ADMIN MASTER] Insira a sua palavra-passe de administrador:');
+  // 1. Verificação de Palavra-Passe Master
+  const pass = prompt('🔐 [ADMIN MASTER] Insira a palavra-passe de administrador:');
   if (!pass) return;
 
   if (pass !== 'admin123') {
@@ -65,32 +59,17 @@ async function promptAdminAccess() {
     return;
   }
 
-  const token = prompt('📱 [AUTHY 2FA] Insira o código de 6 dígitos gerado no seu aplicativo Authy / Google Authenticator:');
-  if (!token || token.trim().length !== 6) {
-    alert('❌ Código de verificação inválido.');
+  // 2. Verificação do Código de Segurança (PIN)
+  const token = prompt('📱 [VERIFICAÇÃO DE SEGURANÇA] Insira o seu PIN de 6 dígitos de administrador:');
+  if (!token || token.trim() !== '123456') {
+    alert('❌ Código de verificação incorreto ou inválido.');
     return;
   }
 
-  try {
-    if (typeof window.otplib === 'undefined') {
-      alert('Erro: Biblioteca TOTP não carregada. Verifique o index.html.');
-      return;
-    }
-
-    window.otplib.authenticator.options = { window: 1 };
-    const isValid = window.otplib.authenticator.check(token.trim(), MASTER_TOTP_SECRET);
-
-    if (isValid) {
-      isAdminAuthenticated = true;
-      alert('✅ Código Authy validado com sucesso!');
-      renderAdminView();
-    } else {
-      alert('❌ Código Authy incorreto ou expirado.');
-    }
-  } catch (err) {
-    console.error("Erro ao validar token TOTP:", err);
-    alert('Erro técnico na validação do 2FA.');
-  }
+  // Autentica a sessão administrativa
+  isAdminAuthenticated = true;
+  alert('✅ Acesso concedido ao Painel do Administrador!');
+  renderAdminView();
 }
 
 function setupAuthTabs() {
@@ -449,7 +428,7 @@ async function renderAdminView() {
 
   adminView.innerHTML = `
     <div class="page-title" style="display:flex; justify-content:space-between; align-items:center;">
-      <div><span class="eyebrow" style="color: #ef4444;">ÁREA RESTRITA (AUTHY 2FA VERIFICADO)</span><h1>Painel de Administração</h1></div>
+      <div><span class="eyebrow" style="color: #ef4444;">ÁREA RESTRITA (ADMIN VERIFICADO)</span><h1>Painel de Administração</h1></div>
       <button onclick="lockAdminSession()" style="background: #ef4444; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 12px;">🔒 Bloquear Painel</button>
     </div>
 
