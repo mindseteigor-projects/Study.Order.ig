@@ -1224,6 +1224,116 @@ window.loadDirectMessagesList = async function() {
     </div>
     <div style="display: grid; grid-template-columns: 320px 1fr; gap: 16px; height: 68vh; background: #121216; border: 1px solid #262626; border-radius: 12px; overflow: hidden;">
       
+      <!-- Coluna Esquerda: Pesquisa, Pedidos Pendentes e Contactos -->
+      <div style="background: #16161f; border-right: 1px solid #262626; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 16px;">
+        
+        <!-- Campo de Pesquisa Estilo Instagram -->
+        <div>
+          <h4 style="font-size: 11px; color: var(--accent); letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase;">🔍 Pesquisar Pessoas</h4>
+          <input type="text" id="userSearchInput" placeholder="Digitar @username..." onkeyup="searchUsersList()" style="width: 100%; background: #101017; color: white; border: 1px solid #353542; border-radius: 8px; padding: 8px 10px; font-size: 13px; outline: none; box-sizing: border-box;">
+          <div id="searchResultsContainer" style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-height: 140px; overflow-y: auto;"></div>
+        </div>
+
+        <hr style="border: none; border-top: 1px solid #262626; margin: 0;">
+
+        <div>
+          <h4 style="font-size: 11px; color: #38bdf8; letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase;">📩 Convites Recebidos</h4>
+          <div id="pendingRequestsContainer" style="display: flex; flex-direction: column; gap: 6px;">
+            ${pendingRequests && pendingRequests.length > 0 ? pendingRequests.map(req => `
+              <div style="background: #101017; border: 1px solid #222; padding: 10px; border-radius: 8px; font-size: 12px;">
+                <b style="color: #fff;">@${escapeHtml(req.profiles?.username || 'utilizador')}</b> quer conversar.
+                <div style="display: flex; gap: 6px; margin-top: 8px;">
+                  <button onclick="respondContactRequest('${req.id}', 'accepted')" class="primary" style="flex:1; padding: 4px; font-size: 11px;">Aceitar</button>
+                  <button onclick="respondContactRequest('${req.id}', 'rejected')" style="flex:1; background:#ef4444; color:white; border:none; padding: 4px; border-radius: 4px; cursor:pointer; font-size: 11px;">Recusar</button>
+                </div>
+              </div>
+            `).join('') : '<small style="color: #737373;">Nenhum convite pendente.</small>'}
+          </div>
+        </div>
+
+        <hr style="border: none; border-top: 1px solid #262626; margin: 0;">
+
+        <div>
+          <h4 style="font-size: 11px; color: #22c55e; letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase;">👥 Meus Contactos (Liberados)</h4>
+          <div id="friendsListContainer" style="display: flex; flex-direction: column; gap: 6px;">
+            ${friends.length > 0 ? friends.map(f => `
+              <div onclick="openDirectMessage('${f.id}', '${escapeHtml(f.username)}')" style="padding: 10px; background: #101017; border-radius: 8px; cursor: pointer; border: 1px solid #1f1f2e; transition: 0.2s;">
+                <b style="color: #fff; font-size: 13px;">@${escapeHtml(f.username)}</b>
+              </div>
+            `).join('') : '<small style="color: #737373;">Sem contactos aceites. Pesquise alguém acima para enviar convite!</small>'}
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Coluna Direita: Chat Privado -->
+      <div id="dmChatArea" style="display: flex; flex-direction: column; background: #0b0b0f; padding: 16px; justify-content: center; align-items: center; color: #737373;">
+        <p>Selecione um contacto à esquerda para iniciar a conversa.</p>
+      </div>
+
+    </div>
+  `;
+};
+
+// Função de Pesquisa em Tempo Real
+window.searchUsersList = async function() {
+  const query = document.getElementById('userSearchInput').value.trim().toLowerCase();
+  const container = document.getElementById('searchResultsContainer');
+  if (!container) return;
+
+  if (!query) {
+    container.innerHTML = '';
+    return;
+  }
+
+  const { data: profiles } = await supabaseClient
+    .from('profiles')
+    .select('*')
+    .neq('id', currentUser.id)
+    .ilike('username', `%${query}%`)
+    .limit(5);
+
+  container.innerHTML = '';
+  if (!profiles || profiles.length === 0) {
+    container.innerHTML = '<small style="color: #737373;">Nenhum utilizador encontrado.</small>';
+    return;
+  }
+
+  profiles.forEach(p => {
+    const item = document.createElement('div');
+    item.style.cssText = 'padding: 8px 10px; background: #101017; border-radius: 6px; cursor: pointer; border: 1px solid #1f1f2e; display: flex; justify-content: space-between; align-items: center; font-size: 12px;';
+    item.onclick = () => openUserProfile(p.id);
+    item.innerHTML = `
+      <b style="color: #fff;">@${escapeHtml(p.username)}</b>
+      <span style="color: var(--accent); font-size: 11px;">Ver Perfil</span>
+    `;
+    container.appendChild(item);
+  });
+};
+  // 2. Buscar convites pendentes recebidos
+  const { data: pendingRequests } = await supabaseClient
+    .from('contact_requests')
+    .select('*, profiles:sender_id (username)')
+    .eq('receiver_id', currentUser.id)
+    .eq('status', 'pending');
+
+  // 3. Buscar perfis dos amigos
+  let friends = [];
+  if (friendIds.length > 0) {
+    const { data: profilesData } = await supabaseClient
+      .from('profiles')
+      .select('*')
+      .in('id', friendIds);
+    friends = profilesData || [];
+  }
+
+  container.innerHTML = `
+    <div class="page-title">
+      <span class="eyebrow">PRIVACIDADE E MENSAGENS</span>
+      <h1>Chat Privado & Convites</h1>
+    </div>
+    <div style="display: grid; grid-template-columns: 320px 1fr; gap: 16px; height: 68vh; background: #121216; border: 1px solid #262626; border-radius: 12px; overflow: hidden;">
+      
       <!-- Coluna Esquerda: Pedidos Pendentes e Contactos -->
       <div style="background: #16161f; border-right: 1px solid #262626; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 16px;">
         
