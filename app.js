@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS
+// STUDY ORDER — APP.JS (CORRIGIDO E OTIMIZADO)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -39,13 +39,11 @@ document.addEventListener('DOMContentLoaded', () => {
   handleInternalHashNavigation();
 });
 
-// Lidar com cliques em links internos do site (ex: #post-ID)
 function handleInternalHashNavigation() {
   window.addEventListener('hashchange', () => {
     const hash = window.location.hash;
     if (hash.startsWith('#post-')) {
       const postId = hash.replace('#post-', '');
-      // Mudar para a vista de feed
       document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
       const feedView = document.getElementById('feedView');
       if (feedView) feedView.classList.remove('hidden');
@@ -54,7 +52,6 @@ function handleInternalHashNavigation() {
       const feedNav = document.querySelector('[data-target="feedView"]');
       if (feedNav) feedNav.classList.add('active');
 
-      // Scroll até o post se ele já estiver carregado
       setTimeout(() => {
         const postCard = document.getElementById(`post-${postId}`);
         if (postCard) {
@@ -974,7 +971,7 @@ function setupRealtimeGlobalTasks() {
 }
 
 // ============================================================
-// FEED E RENDERIZAÇÃO DE POSTS (COM PERFIL, SEGUIR E COMPARTILHAR)
+// FEED E RENDERIZAÇÃO DE POSTS (COMPARTILHAMENTO SEGURO)
 // ============================================================
 
 async function loadPosts() {
@@ -993,7 +990,6 @@ async function loadPosts() {
     return;
   }
 
-  // Buscar lista de quem o utilizador atual segue
   const { data: followingList } = await supabaseClient
     .from('followers')
     .select('following_id')
@@ -1057,12 +1053,11 @@ async function renderPostCard(post, followingIds = []) {
         💬 <b>${commentCount || 0}</b> Comentários
       </button>
 
-      <button onclick="openShareOptions('${post.id}', '${escapeHtml(post.content).replace(/'/g, "\\'")}', '${post.media_url || ''}')" style="background: transparent; border: none; color: #a8a8a8; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 5px;">
+      <button id="share-btn-${post.id}" style="background: transparent; border: none; color: #a8a8a8; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 5px;">
         🔗 Compartilhar
       </button>
     </div>
 
-    <!-- Área expansível de comentários -->
     <div id="comments-section-${post.id}" class="hidden" style="margin-top: 14px; padding-top: 12px; border-top: 1px dashed #262626;">
       <div id="comments-list-${post.id}" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; max-height: 200px; overflow-y: auto;">
         <small style="color: #737373;">A carregar comentários...</small>
@@ -1076,6 +1071,12 @@ async function renderPostCard(post, followingIds = []) {
   `;
 
   container.appendChild(card);
+
+  // Atribuir evento via JavaScript puro para evitar falhas com aspas no conteúdo do post
+  const shareBtn = document.getElementById(`share-btn-${post.id}`);
+  if (shareBtn) {
+    shareBtn.onclick = () => openShareOptions(post.id, post.content || '', post.media_url || '');
+  }
 }
 
 // ============================================================
@@ -1083,7 +1084,6 @@ async function renderPostCard(post, followingIds = []) {
 // ============================================================
 
 window.toggleFollowUser = async function(targetUserId) {
-  // Verificar se já segue
   const { data: existing } = await supabaseClient
     .from('followers')
     .select('id')
@@ -1092,11 +1092,9 @@ window.toggleFollowUser = async function(targetUserId) {
     .maybeSingle();
 
   if (existing) {
-    // Deixar de seguir
     await supabaseClient.from('followers').delete().eq('id', existing.id);
     alert('Deixou de seguir este utilizador.');
   } else {
-    // Seguir
     await supabaseClient.from('followers').insert([{ follower_id: currentUser.id, following_id: targetUserId }]);
     alert('Agora está a seguir este utilizador!');
   }
@@ -1139,14 +1137,13 @@ window.openUserProfile = async function(userId) {
 };
 
 // ============================================================
-// MENSAGENS PRIVADAS (DMs ESTILO WHATSAPP)
+// MENSAGENS PRIVADAS (DMs)
 // ============================================================
 
 window.loadDirectMessagesList = async function() {
   const container = document.getElementById('messagesView');
   if (!container) return;
 
-  // Buscar utilizadores que o utilizador segue ou com quem já falou
   const { data: profiles } = await supabaseClient.from('profiles').select('*').neq('id', currentUser.id).order('username');
 
   container.innerHTML = `
@@ -1181,7 +1178,6 @@ window.loadDirectMessagesList = async function() {
 };
 
 window.openDirectMessage = function(targetUserId, targetUsername) {
-  // Se veio do modal de perfil, fechar o modal e mudar para a aba de mensagens
   const modal = document.getElementById('userProfileModal');
   if (modal) modal.remove();
 
@@ -1287,7 +1283,7 @@ function setupRealtimeDm(targetUserId) {
 }
 
 // ============================================================
-// COMENTÁRIOS E MODAL DE COMPARTILHAMENTO ESTILO INSTAGRAM
+// COMENTÁRIOS E MODAL DE COMPARTILHAMENTO
 // ============================================================
 
 window.toggleComments = async function(postId) {
@@ -1364,7 +1360,6 @@ window.deleteComment = async function(commentId, postId) {
   }
 };
 
-// MODAL DE COMPARTILHAMENTO COM PESQUISA EM TEMPO REAL
 window.openShareOptions = async function(postId, contentSnippet, mediaUrl) {
   let modal = document.getElementById('shareModalOverlay');
   if (modal) modal.remove();
@@ -1393,7 +1388,7 @@ window.openShareOptions = async function(postId, contentSnippet, mediaUrl) {
         
         <div id="shareGroupsListContainer" style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;">
           ${groups && groups.length > 0 ? groups.map(g => `
-            <div class="share-group-item" data-name="${g.name.toLowerCase()}" onclick="sendPostToGroup('${g.id}', '${escapeHtml(g.name).replace(/'/g, "\\'")}', '${escapeHtml(contentSnippet).replace(/'/g, "\\'")}', '${mediaUrl || ''}')" style="padding: 8px 10px; background: #101017; border-radius: 6px; cursor: pointer; font-size: 13px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #1f1f2e; transition: 0.2s;">
+            <div class="share-group-item" data-name="${g.name.toLowerCase()}" id="share-g-${g.id}" style="padding: 8px 10px; background: #101017; border-radius: 6px; cursor: pointer; font-size: 13px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #1f1f2e; transition: 0.2s;">
               <span>👥 ${escapeHtml(g.name)}</span>
               <span style="font-size: 11px; color: #38bdf8; background: #1e3a8a; padding: 2px 8px; border-radius: 4px; font-weight: 500;">Enviar</span>
             </div>
@@ -1408,6 +1403,16 @@ window.openShareOptions = async function(postId, contentSnippet, mediaUrl) {
       </div>
     </div>
   `;
+
+  // Atribuir eventos de clique limpos para cada grupo no modal de partilha
+  if (groups) {
+    groups.forEach(g => {
+      const itemEl = document.getElementById(`share-g-${g.id}`);
+      if (itemEl) {
+        itemEl.onclick = () => sendPostToGroup(g.id, g.name, contentSnippet, mediaUrl);
+      }
+    });
+  }
 };
 
 window.filterShareGroups = function() {
@@ -1426,7 +1431,7 @@ window.filterShareGroups = function() {
 window.sendPostToGroup = async function(groupId, groupName, contentSnippet, mediaUrl) {
   let formattedMessage = `📢 [POST COMPARTILHADO]\n"${contentSnippet}"`;
   
-  await supabaseClient.from('group_messages').insert([
+  const { error } = await supabaseClient.from('group_messages').insert([
     { 
       group_id: groupId, 
       user_id: currentUser.id, 
@@ -1436,6 +1441,11 @@ window.sendPostToGroup = async function(groupId, groupName, contentSnippet, medi
     }
   ]);
 
+  if (error) {
+    alert('❌ Erro ao enviar post para o grupo: ' + error.message);
+    return;
+  }
+
   alert(`✅ Publicação enviada com sucesso para o grupo "${groupName}"!`);
   const modal = document.getElementById('shareModalOverlay');
   if (modal) modal.remove();
@@ -1444,7 +1454,7 @@ window.sendPostToGroup = async function(groupId, groupName, contentSnippet, medi
 window.shareExternalLink = function(postId) {
   const postUrl = `${window.location.origin}${window.location.pathname}#post-${postId}`;
   navigator.clipboard.writeText(postUrl).then(() => {
-    alert('🔗 Link interno da publicação copiado! Ao colar no navegador ou partilhar, abrirá diretamente no site.');
+    alert('🔗 Link interno da publicação copiado!');
   });
   const modal = document.getElementById('shareModalOverlay');
   if (modal) modal.remove();
@@ -1458,7 +1468,7 @@ function setupRealtimeFeed() {
 }
 
 // ============================================================
-// GRUPOS DE ESTUDO & AULAS ONLINE (VÍDEOS E FOTOS EM TEMPO REAL)
+// GRUPOS DE ESTUDO & AULAS ONLINE (CHATS EM TEMPO REAL)
 // ============================================================
 
 async function loadGroups() {
@@ -1496,10 +1506,15 @@ async function loadGroups() {
           <h3 style="color: var(--accent); margin-bottom: 4px; word-break: break-all;">👥 ${escapeHtml(group.name)}</h3>
           <p style="font-size: 13px; color: #a8a8a8; margin: 0;">Clique para abrir a sala de aula / chat do grupo.</p>
         </div>
-        <button class="primary" style="padding: 6px 14px; font-size: 12px; flex-shrink: 0;" onclick="event.stopPropagation(); openGroupChat({id: '${group.id}', name: '${escapeHtml(group.name).replace(/'/g, "\\'")}'})">Entrar no Grupo</button>
+        <button id="enter-group-${group.id}" class="primary" style="padding: 6px 14px; font-size: 12px; flex-shrink: 0;">Entrar no Grupo</button>
       </div>
     `;
     groupsList.appendChild(card);
+
+    setTimeout(() => {
+      const btn = document.getElementById(`enter-group-${group.id}`);
+      if (btn) btn.onclick = (e) => { e.stopPropagation(); openGroupChat(group); };
+    }, 0);
   });
 }
 
@@ -1640,7 +1655,7 @@ window.sendGroupMessage = async function() {
   selectedGroupFileUrl = null;
   selectedGroupFileType = null;
 
-  await supabaseClient.from('group_messages').insert([
+  const { error } = await supabaseClient.from('group_messages').insert([
     { 
       group_id: activeGroupId, 
       user_id: currentUser.id, 
@@ -1649,6 +1664,10 @@ window.sendGroupMessage = async function() {
       media_type: mediaTypeToSend
     }
   ]);
+
+  if (error) {
+    alert('❌ Erro ao enviar mensagem: ' + error.message);
+  }
 };
 
 function setupRealtimeChat(groupId) {
@@ -1680,13 +1699,11 @@ function setupRealtimeChat(groupId) {
     .subscribe();
 }
 
-// FORMATADOR DE LINKS COM SUPORTE A REDIRECIONAMENTO INTERNO
 function linkifyText(text) {
   if (!text) return '';
   const escaped = escapeHtml(text);
   const urlRegex = /(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%?=~_|!:,.;]*)/ig;
   return escaped.replace(urlRegex, function(url) {
-    // Se o link for do próprio site, abre internamente sem nova aba
     if (url.includes(window.location.host) && url.includes('#post-')) {
       return `<a href="${url}" style="color: #38bdf8; text-decoration: underline;">${url}</a>`;
     }
