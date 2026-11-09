@@ -50,6 +50,7 @@
       <button class="side-action nav-link" data-target="dashboard">📚 Meus Estudos</button>
       <button class="side-action nav-link" data-target="allTasksView">📅 Provas & Tarefas</button>
       <button class="side-action nav-link" data-target="groupsView">👥 Grupos & Comunidades</button>
+      <button class="side-action nav-link" data-target="messagesView">💬 Mensagens (DMs)</button>
       <button class="side-action nav-link" data-target="proView">⭐ Plano PRO (R$ 19,90)</button>
       
       <div class="side-label">MINHAS MATÉRIAS</div>
@@ -118,7 +119,12 @@
           <div id="groupsList"></div>
         </div>
 
-        <!-- 4. PLANO PRO -->
+        <!-- 4. MENSAGENS PRIVADAS (DMs) -->
+        <div id="messagesView" class="view hidden">
+          <!-- O app.js preenche este espaço dinamicamente com a lista de contactos e chat privado -->
+        </div>
+
+        <!-- 5. PLANO PRO -->
         <div id="proView" class="view hidden">
           <div class="hero" style="background: linear-gradient(135deg, #2b2300, #15151c); border-color: var(--accent);">
             <div>
@@ -130,7 +136,7 @@
           </div>
         </div>
 
-        <!-- 5. MATÉRIA DETALHADA -->
+        <!-- 6. MATÉRIA DETALHADA -->
         <div id="subjectView" class="view hidden">
           <div class="page-title">
             <div><span class="eyebrow">MATÉRIA</span><h1 id="subjectTitle">Matemática</h1></div>
@@ -146,7 +152,7 @@
           </div>
         </div>
 
-        <!-- 6. TODAS AS TAREFAS / AGENDA -->
+        <!-- 7. TODAS AS TAREFAS / AGENDA -->
         <div id="allTasksView" class="view hidden">
           <div class="page-title">
             <div><span class="eyebrow">AGENDA</span><h1>Provas, Lembretes e Tarefas</h1></div>
