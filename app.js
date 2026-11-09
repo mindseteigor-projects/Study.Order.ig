@@ -540,20 +540,35 @@ window.adminPublishBanner = async function() {
   const message = msgInput ? msgInput.value.trim() : '';
   const type = typeInput ? typeInput.value : 'info';
 
-  if (!message) return alert('Escreva a mensagem do comunicado.');
+  if (!message) {
+    alert('Escreva a mensagem do comunicado.');
+    return;
+  }
 
-  await supabaseClient.from('global_announcements').update({ is_active: false }).neq('id', '00000000-0000-0000-0000-000000000000');
-  await supabaseClient.from('global_announcements').insert([{ message, type, is_active: true }]);
-  
-  if (msgInput) msgInput.value = '';
-  alert('Banner publicado com sucesso!');
-  loadGlobalBanner();
+  try {
+    await supabaseClient.from('global_announcements').update({ is_active: false }).neq('id', '00000000-0000-0000-0000-000000000000');
+    const { error } = await supabaseClient.from('global_announcements').insert([{ message, type, is_active: true }]);
+    
+    if (error) throw error;
+
+    if (msgInput) msgInput.value = '';
+    alert('✅ Banner publicado com sucesso!');
+    loadGlobalBanner();
+  } catch (err) {
+    console.error("Erro ao publicar banner:", err);
+    alert('❌ Erro ao publicar banner: ' + (err.message || 'Verifique se a tabela global_announcements existe no Supabase.'));
+  }
 };
 
 window.adminClearBanner = async function() {
-  await supabaseClient.from('global_announcements').update({ is_active: false }).neq('id', '00000000-0000-0000-0000-000000000000');
-  alert('Todos os banners foram desativados.');
-  loadGlobalBanner();
+  try {
+    await supabaseClient.from('global_announcements').update({ is_active: false }).neq('id', '00000000-0000-0000-0000-000000000000');
+    alert('✅ Todos os banners foram desativados.');
+    loadGlobalBanner();
+  } catch (err) {
+    console.error("Erro ao limpar banners:", err);
+    alert('❌ Erro ao desativar banners.');
+  }
 };
 
 async function loadAdminPosts() {
