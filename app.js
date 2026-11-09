@@ -50,7 +50,6 @@ async function promptAdminAccess() {
     return;
   }
 
-  // 1. Verificação de Palavra-Passe Master
   const pass = prompt('🔐 [ADMIN MASTER] Insira a palavra-passe de administrador:');
   if (!pass) return;
 
@@ -59,14 +58,12 @@ async function promptAdminAccess() {
     return;
   }
 
-  // 2. Verificação do Código de Segurança (PIN)
   const token = prompt('📱 [VERIFICAÇÃO DE SEGURANÇA] Insira o seu PIN de 6 dígitos de administrador:');
   if (!token || token.trim() !== '123456') {
     alert('❌ Código de verificação incorreto ou inválido.');
     return;
   }
 
-  // Autentica a sessão administrativa
   isAdminAuthenticated = true;
   alert('✅ Acesso concedido ao Painel do Administrador!');
   renderAdminView();
@@ -935,11 +932,19 @@ function setupRealtimeGlobalTasks() {
   }).subscribe();
 }
 
+// ============================================================
+// CARREGAR E RENDERIZAR POSTS (APENAS DATA + COMPARTILHAMENTO DUPLO)
+// ============================================================
+
 async function loadPosts() {
   const container = document.getElementById('postsList');
   if (!container) return;
 
-  const { data: posts } = await supabaseClient.from('posts').select(`*, profiles:user_id (username)`).order('created_at', { ascending: false });
+  const { data: posts } = await supabaseClient
+    .from('posts')
+    .select(`*, profiles:user_id (username)`)
+    .order('created_at', { ascending: false });
+
   container.innerHTML = '';
 
   if (!posts || posts.length === 0) {
@@ -947,16 +952,23 @@ async function loadPosts() {
     return;
   }
 
-  posts.forEach(post => renderPostCard(post));
+  for (const post of posts) {
+    await renderPostCard(post);
+  }
 }
 
-function renderPostCard(post) {
+async function renderPostCard(post) {
   const container = document.getElementById('postsList');
   if (!container) return;
 
   const card = document.createElement('div');
   card.className = 'panel';
-  card.style.marginBottom = '14px';
+  card.style.marginBottom = '16px';
+  card.id = `post-${post.id}`;
+
+  // Formatação apenas da DATA (sem hora)
+  const dateObj = new Date(post.created_at);
+  const formattedDate = dateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
   let mediaRender = '';
   if (post.media_url && post.media_url.trim() !== '') {
@@ -966,15 +978,188 @@ function renderPostCard(post) {
       </div>`;
   }
 
+  const { count: commentCount } = await supabaseClient
+    .from('post_comments')
+    .select('*', { count: 'exact', head: true })
+    .eq('post_id', post.id);
+
   card.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-      <span style="font-weight: 600; color: var(--accent);">@${post.profiles?.username || 'utilizador'}</span>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+      <span style="font-weight: 600; color: var(--accent); font-size: 14px;">@${post.profiles?.username || 'utilizador'}</span>
+      <span style="font-size: 11px; color: #737373;">📅 ${formattedDate}</span>
     </div>
-    <div style="font-size: 14px; line-height: 1.4; word-break: break-word;">${escapeHtml(post.content)}</div>
+
+    <div style="font-size: 14px; line-height: 1.5; word-break: break-word; color: #f3f4f6;">${escapeHtml(post.content)}</div>
     ${mediaRender}
+
+    <div style="display: flex; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #262626; align-items: center;">
+      <button onclick="toggleComments('${post.id}')" style="background: transparent; border: none; color: #a8a8a8; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 5px;">
+        💬 <b>${commentCount || 0}</b> Comentários
+      </button>
+
+      <button onclick="openShareOptions('${post.id}', '${escapeHtml(post.content).replace(/'/g, "\\'")}', '${post.media_url || ''}')" style="background: transparent; border: none; color: #a8a8a8; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 5px;">
+        🔗 Compartilhar
+      </button>
+    </div>
+
+    <!-- Área expansível de comentários -->
+    <div id="comments-section-${post.id}" class="hidden" style="margin-top: 14px; padding-top: 12px; border-top: 1px dashed #262626;">
+      <div id="comments-list-${post.id}" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; max-height: 200px; overflow-y: auto;">
+        <small style="color: #737373;">A carregar comentários...</small>
+      </div>
+
+      <div style="display: flex; gap: 8px;">
+        <input type="text" id="comment-input-${post.id}" placeholder="Escreva um comentário..." style="flex: 1; background: #101017; color: white; border: 1px solid #353542; border-radius: 6px; padding: 8px 12px; font-size: 13px; outline: none;" onkeydown="if(event.key === 'Enter') submitComment('${post.id}')">
+        <button onclick="submitComment('${post.id}')" class="primary" style="padding: 6px 14px; font-size: 12px;">Comentar</button>
+      </div>
+    </div>
   `;
 
   container.appendChild(card);
+}
+
+// ============================================================
+// COMENTÁRIOS E OPÇÕES DE COMPARTILHAMENTO
+// ============================================================
+
+window.toggleComments = async function(postId) {
+  const section = document.getElementById(`comments-section-${postId}`);
+  if (!section) return;
+
+  const isHidden = section.classList.contains('hidden');
+  if (isHidden) {
+    section.classList.remove('hidden');
+    loadComments(postId);
+  } else {
+    section.classList.add('hidden');
+  }
+};
+
+async function loadComments(postId) {
+  const listContainer = document.getElementById(`comments-list-${postId}`);
+  if (!listContainer) return;
+
+  const { data: comments } = await supabaseClient
+    .from('post_comments')
+    .select(`*, profiles:user_id (username)`)
+    .eq('post_id', postId)
+    .order('created_at', { ascending: true });
+
+  listContainer.innerHTML = '';
+
+  if (!comments || comments.length === 0) {
+    listContainer.innerHTML = '<small style="color: #737373;">Nenhum comentário ainda. Seja o primeiro!</small>';
+    return;
+  }
+
+  comments.forEach(c => {
+    const div = document.createElement('div');
+    div.style.cssText = 'background: #101017; padding: 8px 10px; border-radius: 6px; font-size: 12px; border: 1px solid #1f1f2e; display: flex; justify-content: space-between; align-items: flex-start;';
+    
+    const isMe = c.user_id === currentUser.id;
+    const deleteBtn = isMe ? `<button onclick="deleteComment('${c.id}', '${postId}')" style="background:transparent; border:none; color:#ef4444; cursor:pointer; font-size:11px;">✕</button>` : '';
+
+    div.innerHTML = `
+      <div style="flex: 1; word-break: break-word;">
+        <b style="color: var(--accent);">@${c.profiles?.username || 'utilizador'}</b>: 
+        <span style="color: #e5e7eb;">${escapeHtml(c.content)}</span>
+      </div>
+      ${deleteBtn}
+    `;
+    listContainer.appendChild(div);
+  });
+}
+
+window.submitComment = async function(postId) {
+  const input = document.getElementById(`comment-input-${postId}`);
+  const content = input ? input.value.trim() : '';
+
+  if (!content) return;
+
+  input.value = '';
+
+  const { error } = await supabaseClient.from('post_comments').insert([
+    { post_id: postId, user_id: currentUser.id, content }
+  ]);
+
+  if (error) {
+    alert('Erro ao enviar comentário: ' + error.message);
+  } else {
+    loadComments(postId);
+  }
+};
+
+window.deleteComment = async function(commentId, postId) {
+  if (confirm('Deseja excluir este comentário?')) {
+    await supabaseClient.from('post_comments').delete().eq('id', commentId);
+    loadComments(postId);
+  }
+};
+
+// Menu de compartilhamento duplo (Grupo ou Externo)
+window.openShareOptions = async function(postId, contentSnippet, mediaUrl) {
+  const choice = prompt(
+    "Como deseja compartilhar este post?\n\n" +
+    "1 - Enviar num Grupo de Estudos do Study Order\n" +
+    "2 - Compartilhar para fora do site (WhatsApp / Copiar Link)\n\n" +
+    "Digite 1 ou 2:"
+  );
+
+  if (choice === '1') {
+    shareToInternalGroup(contentSnippet, mediaUrl);
+  } else if (choice === '2') {
+    shareExternal(postId, contentSnippet);
+  }
+};
+
+async function shareToInternalGroup(contentSnippet, mediaUrl) {
+  const { data: groups, error } = await supabaseClient.from('groups').select('*').order('name');
+  
+  if (error || !groups || groups.length === 0) {
+    alert('Não existem grupos cadastrados para enviar.');
+    return;
+  }
+
+  let optionsList = "Escolha o número do grupo para onde enviar o post:\n\n";
+  groups.forEach((g, idx) => {
+    optionsList += `${idx + 1} - ${g.name}\n`;
+  });
+
+  const selectedIdx = prompt(optionsList);
+  const selectedGroup = groups[parseInt(selectedIdx) - 1];
+
+  if (!selectedGroup) {
+    if (selectedIdx) alert('Grupo inválido.');
+    return;
+  }
+
+  let formattedMessage = `📢 [POST REPUBLICADO DO FEED]\n"${contentSnippet}"`;
+  if (mediaUrl) formattedMessage += `\n🔗 Mídia: ${mediaUrl}`;
+
+  await supabaseClient.from('group_messages').insert([
+    { group_id: selectedGroup.id, user_id: currentUser.id, content: formattedMessage }
+  ]);
+
+  alert(`✅ Publicação compartilhada no grupo "${selectedGroup.name}" com sucesso!`);
+}
+
+function shareExternal(postId, contentSnippet) {
+  const postUrl = `${window.location.origin}${window.location.pathname}#post-${postId}`;
+  const snippet = contentSnippet.substring(0, 60);
+
+  if (navigator.share) {
+    navigator.share({
+      title: 'Publicação no Study Order',
+      text: `Confira este post no Study Order: "${snippet}..."`,
+      url: postUrl
+    }).catch(() => {});
+  } else {
+    navigator.clipboard.writeText(postUrl).then(() => {
+      alert('🔗 Link da publicação copiado para a área de transferência!');
+    }).catch(() => {
+      alert('Link do post: ' + postUrl);
+    });
+  }
 }
 
 function setupRealtimeFeed() {
