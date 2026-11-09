@@ -399,11 +399,22 @@ async function loadGlobalBanner() {
   }
 
   if (banner && banner.message) {
-    const bgColor = banner.type === 'warning' ? '#ca8a04' : (banner.type === 'success' ? '#16a34a' : '#2563eb');
+    const isWarning = banner.type === 'warning';
+    const isSuccess = banner.type === 'success';
+    
+    const bgColor = isWarning ? 'linear-gradient(135deg, #422006, #1e1b18)' : (isSuccess ? 'linear-gradient(135deg, #064e3b, #111827)' : 'linear-gradient(135deg, #1e3a8a, #111827)');
+    const borderColor = isWarning ? '#ca8a04' : (isSuccess ? '#16a34a' : '#3b82f6');
+    const badgeText = isWarning ? '⚠️ AVISO IMPORTANTE' : (isSuccess ? '🎉 NOVIDADE' : '📢 COMUNICADO OFICIAL');
+
     bannerContainer.innerHTML = `
-      <div style="background: ${bgColor}; color: white; padding: 10px 16px; border-radius: 8px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 500;">
-        <span>📢 ${escapeHtml(banner.message)}</span>
-        <button onclick="document.getElementById('systemGlobalBanner').innerHTML='';" style="background:transparent; border:none; color:white; font-size:16px; cursor:pointer;">✕</button>
+      <div style="background: ${bgColor}; border: 1px solid ${borderColor}; color: white; padding: 20px 24px; border-radius: 12px; margin-bottom: 24px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); position: relative;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 11px; font-weight: 700; letter-spacing: 1px; color: ${borderColor}; text-transform: uppercase;">${badgeText}</span>
+          <button onclick="document.getElementById('systemGlobalBanner').innerHTML='';" style="background: rgba(255,255,255,0.1); border: none; color: white; width: 28px; height: 28px; border-radius: 6px; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s;" title="Fechar aviso">✕</button>
+        </div>
+        <div style="font-size: 15px; font-weight: 500; line-height: 1.5; color: #f3f4f6; word-break: break-word;">
+          ${escapeHtml(banner.message)}
+        </div>
       </div>
     `;
   } else {
