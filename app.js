@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS (CORRIGIDO E OTIMIZADO)
+// STUDY ORDER — APP.JS (COM PEDIDO DE CONTATO E TEMPO REAL)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -22,6 +22,7 @@ let activeGroupId = null;
 let activeDmUserId = null;
 let messageSubscription = null;
 let dmSubscription = null;
+let requestSubscription = null;
 let feedSubscription = null;
 let tasksSubscription = null;
 let subjectContentsSubscription = null;
@@ -265,14 +266,9 @@ async function loadProfile() {
 function setupNavigation() {
   document.querySelectorAll('.nav-link').forEach(btn => {
     btn.addEventListener('click', () => {
-      if (messageSubscription) {
-        supabaseClient.removeChannel(messageSubscription);
-        messageSubscription = null;
-      }
-      if (dmSubscription) {
-        supabaseClient.removeChannel(dmSubscription);
-        dmSubscription = null;
-      }
+      if (messageSubscription) { supabaseClient.removeChannel(messageSubscription); messageSubscription = null; }
+      if (dmSubscription) { supabaseClient.removeChannel(dmSubscription); dmSubscription = null; }
+      if (requestSubscription) { supabaseClient.removeChannel(requestSubscription); requestSubscription = null; }
       activeGroupId = null;
       activeDmUserId = null;
 
@@ -304,6 +300,7 @@ function setupNavigation() {
     logoutBtn.onclick = async () => {
       if (messageSubscription) supabaseClient.removeChannel(messageSubscription);
       if (dmSubscription) supabaseClient.removeChannel(dmSubscription);
+      if (requestSubscription) supabaseClient.removeChannel(requestSubscription);
       if (feedSubscription) supabaseClient.removeChannel(feedSubscription);
       if (tasksSubscription) supabaseClient.removeChannel(tasksSubscription);
       if (subjectContentsSubscription) supabaseClient.removeChannel(subjectContentsSubscription);
@@ -322,6 +319,7 @@ function initAppFeatures() {
   loadTasks();
   loadGroups();
   setupRealtimeGlobalTasks();
+  setupGlobalRequestRealtime();
 
   const postFileInput = document.getElementById('postFileInput');
   if (postFileInput) {
@@ -970,8 +968,20 @@ function setupRealtimeGlobalTasks() {
   }).subscribe();
 }
 
+function setupGlobalRequestRealtime() {
+  if (requestSubscription) supabaseClient.removeChannel(requestSubscription);
+  requestSubscription = supabaseClient.channel('public:contact_requests_global')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'contact_requests' }, () => {
+      const msgView = document.getElementById('messagesView');
+      if (msgView && !msgView.classList.contains('hidden')) {
+        loadDirectMessagesList();
+      }
+    })
+    .subscribe();
+}
+
 // ============================================================
-// FEED E RENDERIZAÇÃO DE POSTS (COMPARTILHAMENTO SEGURO)
+// FEED E RENDERIZAÇÃO DE POSTS
 // ============================================================
 
 async function loadPosts() {
@@ -1072,7 +1082,6 @@ async function renderPostCard(post, followingIds = []) {
 
   container.appendChild(card);
 
-  // Atribuir evento via JavaScript puro para evitar falhas com aspas no conteúdo do post
   const shareBtn = document.getElementById(`share-btn-${post.id}`);
   if (shareBtn) {
     shareBtn.onclick = () => openShareOptions(post.id, post.content || '', post.media_url || '');
@@ -1080,7 +1089,7 @@ async function renderPostCard(post, followingIds = []) {
 }
 
 // ============================================================
-// SEGUIR UTILIZADORES E PERFIS
+// SEGUIR E PERFIL COM CONVITE DE CONTATO (PRIVACIDADE)
 // ============================================================
 
 window.toggleFollowUser = async function(targetUserId) {
@@ -1108,6 +1117,26 @@ window.openUserProfile = async function(userId) {
   const { count: followersCount } = await supabaseClient.from('followers').select('*', { count: 'exact', head: true }).eq('following_id', userId);
   const { count: followingCount } = await supabaseClient.from('followers').select('*', { count: 'exact', head: true }).eq('follower_id', userId);
 
+  // Verificar status de convite entre currentUser e este userId
+  const { data: reqData } = await supabaseClient
+    .from('contact_requests')
+    .select('*')
+    .or(`and(sender_id.eq.${currentUser.id},receiver_id.eq.${userId}),and(sender_id.eq.${userId},receiver_id.eq.${currentUser.id})`)
+    .maybeSingle();
+
+  let contactActionHtml = '';
+  if (userId !== currentUser.id) {
+    if (!reqData) {
+      contactActionHtml = `<button onclick="sendContactRequest('${userId}', '${escapeHtml(profile.username)}')" class="primary" style="padding: 10px; border-radius: 8px; cursor: pointer; font-size: 13px;">📩 Enviar Convite de Contato</button>`;
+    } else if (reqData.status === 'pending') {
+      contactActionHtml = `<button disabled style="background: #334155; color: #94a3b8; border: none; padding: 10px; border-radius: 8px; font-size: 13px;">⏳ Convite Pendente</button>`;
+    } else if (reqData.status === 'accepted') {
+      contactActionHtml = `<button onclick="openDirectMessage('${userId}', '${escapeHtml(profile.username)}')" class="primary" style="padding: 10px; border-radius: 8px; cursor: pointer; font-size: 13px;">💬 Abrir Chat Privado</button>`;
+    } else {
+      contactActionHtml = `<button onclick="sendContactRequest('${userId}', '${escapeHtml(profile.username)}')" class="primary" style="padding: 10px; border-radius: 8px; cursor: pointer; font-size: 13px;">📩 Enviar Novo Convite</button>`;
+    }
+  }
+
   let modal = document.getElementById('userProfileModal');
   if (modal) modal.remove();
 
@@ -1128,67 +1157,129 @@ window.openUserProfile = async function(userId) {
         <div><b>${followingCount || 0}</b><br><small style="color: #737373;">A seguir</small></div>
       </div>
 
-      ${userId !== currentUser.id ? `
-        <button onclick="openDirectMessage('${userId}', '${escapeHtml(profile.username)}')" class="primary" style="padding: 10px; border-radius: 8px; cursor: pointer; font-size: 13px;">💬 Enviar Mensagem Privada (DM)</button>
-      ` : ''}
+      ${contactActionHtml}
     </div>
   `;
   document.body.appendChild(modal);
 };
 
+window.sendContactRequest = async function(targetUserId, targetUsername) {
+  const { error } = await supabaseClient.from('contact_requests').insert([
+    { sender_id: currentUser.id, receiver_id: targetUserId, status: 'pending' }
+  ]);
+
+  if (error) {
+    alert('Erro ao enviar convite: ' + error.message);
+  } else {
+    alert(`✅ Convite de contacto enviado para @${targetUsername}!`);
+    const modal = document.getElementById('userProfileModal');
+    if (modal) modal.remove();
+  }
+};
+
 // ============================================================
-// MENSAGENS PRIVADAS (DMs)
+// MENSAGENS PRIVADAS & GESTÃO DE CONVITES EM TEMPO REAL
 // ============================================================
 
 window.loadDirectMessagesList = async function() {
   const container = document.getElementById('messagesView');
   if (!container) return;
 
-  const { data: profiles } = await supabaseClient.from('profiles').select('*').neq('id', currentUser.id).order('username');
+  // 1. Buscar convites aceites (amigos/contactos)
+  const { data: acceptedRequests } = await supabaseClient
+    .from('contact_requests')
+    .select('*')
+    .eq('status', 'accepted')
+    .or(`sender_id.eq.${currentUser.id},receiver_id.eq.${currentUser.id}`);
+
+  const friendIds = [];
+  if (acceptedRequests) {
+    acceptedRequests.forEach(req => {
+      const friendId = req.sender_id === currentUser.id ? req.receiver_id : req.sender_id;
+      friendIds.push(friendId);
+    });
+  }
+
+  // 2. Buscar convites pendentes recebidos
+  const { data: pendingRequests } = await supabaseClient
+    .from('contact_requests')
+    .select('*, profiles:sender_id (username)')
+    .eq('receiver_id', currentUser.id)
+    .eq('status', 'pending');
+
+  // 3. Buscar perfis dos amigos
+  let friends = [];
+  if (friendIds.length > 0) {
+    const { data: profilesData } = await supabaseClient
+      .from('profiles')
+      .select('*')
+      .in('id', friendIds);
+    friends = profilesData || [];
+  }
 
   container.innerHTML = `
     <div class="page-title">
-      <span class="eyebrow">CHAT PRIVADO</span>
-      <h1>Mensagens Diretas (DMs)</h1>
+      <span class="eyebrow">PRIVACIDADE E MENSAGENS</span>
+      <h1>Chat Privado & Convites</h1>
     </div>
-    <div style="display: grid; grid-template-columns: 280px 1fr; gap: 16px; height: 65vh; background: #121216; border: 1px solid #262626; border-radius: 12px; overflow: hidden;">
-      <div style="background: #16161f; border-right: 1px solid #262626; overflow-y: auto; padding: 12px;" id="dmContactsList">
-        <p style="color: #737373; font-size: 13px;">A carregar contatos...</p>
+    <div style="display: grid; grid-template-columns: 320px 1fr; gap: 16px; height: 68vh; background: #121216; border: 1px solid #262626; border-radius: 12px; overflow: hidden;">
+      
+      <!-- Coluna Esquerda: Pedidos Pendentes e Contactos -->
+      <div style="background: #16161f; border-right: 1px solid #262626; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 16px;">
+        
+        <div>
+          <h4 style="font-size: 11px; color: #38bdf8; letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase;">📩 Convites Recebidos</h4>
+          <div id="pendingRequestsContainer" style="display: flex; flex-direction: column; gap: 6px;">
+            ${pendingRequests && pendingRequests.length > 0 ? pendingRequests.map(req => `
+              <div style="background: #101017; border: 1px solid #222; padding: 10px; border-radius: 8px; font-size: 12px;">
+                <b style="color: #fff;">@${escapeHtml(req.profiles?.username || 'utilizador')}</b> quer conversar.
+                <div style="display: flex; gap: 6px; margin-top: 8px;">
+                  <button onclick="respondContactRequest('${req.id}', 'accepted')" class="primary" style="flex:1; padding: 4px; font-size: 11px;">Aceitar</button>
+                  <button onclick="respondContactRequest('${req.id}', 'rejected')" style="flex:1; background:#ef4444; color:white; border:none; padding: 4px; border-radius: 4px; cursor:pointer; font-size: 11px;">Recusar</button>
+                </div>
+              </div>
+            `).join('') : '<small style="color: #737373;">Nenhum convite pendente.</small>'}
+          </div>
+        </div>
+
+        <hr style="border: none; border-top: 1px solid #262626; margin: 0;">
+
+        <div>
+          <h4 style="font-size: 11px; color: #22c55e; letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase;">👥 Meus Contactos</h4>
+          <div id="friendsListContainer" style="display: flex; flex-direction: column; gap: 6px;">
+            ${friends.length > 0 ? friends.map(f => `
+              <div onclick="openDirectMessage('${f.id}', '${escapeHtml(f.username)}')" style="padding: 10px; background: #101017; border-radius: 8px; cursor: pointer; border: 1px solid #1f1f2e; transition: 0.2s;">
+                <b style="color: #fff; font-size: 13px;">@${escapeHtml(f.username)}</b>
+              </div>
+            `).join('') : '<small style="color: #737373;">Ainda não tem contactos aceites. Vá ao perfil de um utilizador no feed para enviar um convite!</small>'}
+          </div>
+        </div>
+
       </div>
+
+      <!-- Coluna Direita: Chat Privado -->
       <div id="dmChatArea" style="display: flex; flex-direction: column; background: #0b0b0f; padding: 16px; justify-content: center; align-items: center; color: #737373;">
-        <p>Selecione um contato ao lado para iniciar uma conversa privada.</p>
+        <p>Selecione um contacto à esquerda para iniciar a conversa.</p>
       </div>
+
     </div>
   `;
+};
 
-  const contactsContainer = document.getElementById('dmContactsList');
-  if (!profiles || profiles.length === 0) {
-    contactsContainer.innerHTML = '<p style="color: #737373; font-size: 13px;">Nenhum outro utilizador encontrado.</p>';
-    return;
+window.respondContactRequest = async function(requestId, newStatus) {
+  const { error } = await supabaseClient
+    .from('contact_requests')
+    .update({ status: newStatus })
+    .eq('id', requestId);
+
+  if (error) {
+    alert('Erro ao responder convite: ' + error.message);
+  } else {
+    loadDirectMessagesList();
   }
-
-  contactsContainer.innerHTML = '';
-  profiles.forEach(p => {
-    const item = document.createElement('div');
-    item.style.cssText = 'padding: 10px; border-radius: 8px; cursor: pointer; margin-bottom: 6px; background: #101017; border: 1px solid #1f1f2e; transition: 0.2s;';
-    item.onclick = () => openDirectMessage(p.id, p.username);
-    item.innerHTML = `<b style="color: #fff; font-size: 13px;">@${escapeHtml(p.username)}</b>`;
-    contactsContainer.appendChild(item);
-  });
 };
 
 window.openDirectMessage = function(targetUserId, targetUsername) {
-  const modal = document.getElementById('userProfileModal');
-  if (modal) modal.remove();
-
-  document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
-  const msgView = document.getElementById('messagesView');
-  if (msgView) msgView.classList.remove('hidden');
-
-  document.querySelectorAll('.nav-link').forEach(b => b.classList.remove('active'));
-  const navBtn = document.querySelector('[data-target="messagesView"]');
-  if (navBtn) navBtn.classList.add('active');
-
   activeDmUserId = targetUserId;
   const chatArea = document.getElementById('dmChatArea');
   if (!chatArea) return;
@@ -1283,7 +1374,7 @@ function setupRealtimeDm(targetUserId) {
 }
 
 // ============================================================
-// COMENTÁRIOS E MODAL DE COMPARTILHAMENTO
+// COMENTÁRIOS E COMPARTILHAMENTO
 // ============================================================
 
 window.toggleComments = async function(postId) {
@@ -1332,7 +1423,7 @@ async function loadComments(postId) {
     `;
     listContainer.appendChild(div);
   });
-}
+};
 
 window.submitComment = async function(postId) {
   const input = document.getElementById(`comment-input-${postId}`);
@@ -1404,7 +1495,6 @@ window.openShareOptions = async function(postId, contentSnippet, mediaUrl) {
     </div>
   `;
 
-  // Atribuir eventos de clique limpos para cada grupo no modal de partilha
   if (groups) {
     groups.forEach(g => {
       const itemEl = document.getElementById(`share-g-${g.id}`);
@@ -1468,7 +1558,7 @@ function setupRealtimeFeed() {
 }
 
 // ============================================================
-// GRUPOS DE ESTUDO & AULAS ONLINE (CHATS EM TEMPO REAL)
+// GRUPOS DE ESTUDO & AULAS ONLINE
 // ============================================================
 
 async function loadGroups() {
