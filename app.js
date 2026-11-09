@@ -19,7 +19,9 @@ let currentProfile = null;
 let activeAuthMode = 'login';
 let selectedSubjectId = null;
 let activeGroupId = null;
+let activeDmUserId = null;
 let messageSubscription = null;
+let dmSubscription = null;
 let feedSubscription = null;
 let tasksSubscription = null;
 let subjectContentsSubscription = null;
@@ -34,7 +36,36 @@ document.addEventListener('DOMContentLoaded', () => {
   checkUser();
   setupNavigation();
   setupSecretAdminShortcut();
+  handleInternalHashNavigation();
 });
+
+// Lidar com cliques em links internos do site (ex: #post-ID)
+function handleInternalHashNavigation() {
+  window.addEventListener('hashchange', () => {
+    const hash = window.location.hash;
+    if (hash.startsWith('#post-')) {
+      const postId = hash.replace('#post-', '');
+      // Mudar para a vista de feed
+      document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
+      const feedView = document.getElementById('feedView');
+      if (feedView) feedView.classList.remove('hidden');
+      
+      document.querySelectorAll('.nav-link').forEach(b => b.classList.remove('active'));
+      const feedNav = document.querySelector('[data-target="feedView"]');
+      if (feedNav) feedNav.classList.add('active');
+
+      // Scroll até o post se ele já estiver carregado
+      setTimeout(() => {
+        const postCard = document.getElementById(`post-${postId}`);
+        if (postCard) {
+          postCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          postCard.style.border = '2px solid var(--accent)';
+          setTimeout(() => postCard.style.border = '', 3000);
+        }
+      }, 500);
+    }
+  });
+}
 
 function setupSecretAdminShortcut() {
   document.addEventListener('keydown', (e) => {
@@ -241,7 +272,12 @@ function setupNavigation() {
         supabaseClient.removeChannel(messageSubscription);
         messageSubscription = null;
       }
+      if (dmSubscription) {
+        supabaseClient.removeChannel(dmSubscription);
+        dmSubscription = null;
+      }
       activeGroupId = null;
+      activeDmUserId = null;
 
       document.querySelectorAll('.nav-link').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
@@ -260,6 +296,8 @@ function setupNavigation() {
         loadAllTasksView();
       } else if (targetId === 'feedView') {
         loadPosts();
+      } else if (targetId === 'messagesView') {
+        loadDirectMessagesList();
       }
     });
   });
@@ -268,6 +306,7 @@ function setupNavigation() {
   if (logoutBtn) {
     logoutBtn.onclick = async () => {
       if (messageSubscription) supabaseClient.removeChannel(messageSubscription);
+      if (dmSubscription) supabaseClient.removeChannel(dmSubscription);
       if (feedSubscription) supabaseClient.removeChannel(feedSubscription);
       if (tasksSubscription) supabaseClient.removeChannel(tasksSubscription);
       if (subjectContentsSubscription) supabaseClient.removeChannel(subjectContentsSubscription);
@@ -935,7 +974,7 @@ function setupRealtimeGlobalTasks() {
 }
 
 // ============================================================
-// FEED E RENDERIZAÇÃO DE POSTS (APENAS DATA + LINKS EM AZUL)
+// FEED E RENDERIZAÇÃO DE POSTS (COM PERFIL, SEGUIR E COMPARTILHAR)
 // ============================================================
 
 async function loadPosts() {
@@ -944,7 +983,7 @@ async function loadPosts() {
 
   const { data: posts } = await supabaseClient
     .from('posts')
-    .select(`*, profiles:user_id (username)`)
+    .select(`*, profiles:user_id (id, username)`)
     .order('created_at', { ascending: false });
 
   container.innerHTML = '';
@@ -954,12 +993,20 @@ async function loadPosts() {
     return;
   }
 
+  // Buscar lista de quem o utilizador atual segue
+  const { data: followingList } = await supabaseClient
+    .from('followers')
+    .select('following_id')
+    .eq('follower_id', currentUser.id);
+  
+  const followingIds = followingList ? followingList.map(f => f.following_id) : [];
+
   for (const post of posts) {
-    await renderPostCard(post);
+    await renderPostCard(post, followingIds);
   }
 }
 
-async function renderPostCard(post) {
+async function renderPostCard(post, followingIds = []) {
   const container = document.getElementById('postsList');
   if (!container) return;
 
@@ -984,9 +1031,21 @@ async function renderPostCard(post) {
     .select('*', { count: 'exact', head: true })
     .eq('post_id', post.id);
 
+  const isMyPost = post.user_id === currentUser.id;
+  const isFollowing = followingIds.includes(post.user_id);
+  const authorName = post.profiles?.username || 'utilizador';
+
+  let followBtnHtml = '';
+  if (!isMyPost) {
+    followBtnHtml = `<button onclick="toggleFollowUser('${post.user_id}')" style="background: ${isFollowing ? '#262626' : '#3b82f6'}; color: white; border: none; padding: 2px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; margin-left: 8px;">${isFollowing ? 'A seguir' : 'Seguir'}</button>`;
+  }
+
   card.innerHTML = `
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-      <span style="font-weight: 600; color: var(--accent); font-size: 14px;">@${post.profiles?.username || 'utilizador'}</span>
+      <div style="display: flex; align-items: center;">
+        <span style="font-weight: 600; color: var(--accent); font-size: 14px; cursor: pointer;" onclick="openUserProfile('${post.user_id}')">@${authorName}</span>
+        ${followBtnHtml}
+      </div>
       <span style="font-size: 11px; color: #737373;">📅 ${formattedDate}</span>
     </div>
 
@@ -1017,6 +1076,214 @@ async function renderPostCard(post) {
   `;
 
   container.appendChild(card);
+}
+
+// ============================================================
+// SEGUIR UTILIZADORES E PERFIS
+// ============================================================
+
+window.toggleFollowUser = async function(targetUserId) {
+  // Verificar se já segue
+  const { data: existing } = await supabaseClient
+    .from('followers')
+    .select('id')
+    .eq('follower_id', currentUser.id)
+    .eq('following_id', targetUserId)
+    .maybeSingle();
+
+  if (existing) {
+    // Deixar de seguir
+    await supabaseClient.from('followers').delete().eq('id', existing.id);
+    alert('Deixou de seguir este utilizador.');
+  } else {
+    // Seguir
+    await supabaseClient.from('followers').insert([{ follower_id: currentUser.id, following_id: targetUserId }]);
+    alert('Agora está a seguir este utilizador!');
+  }
+  loadPosts();
+};
+
+window.openUserProfile = async function(userId) {
+  const { data: profile } = await supabaseClient.from('profiles').select('*').eq('id', userId).single();
+  if (!profile) return;
+
+  const { count: followersCount } = await supabaseClient.from('followers').select('*', { count: 'exact', head: true }).eq('following_id', userId);
+  const { count: followingCount } = await supabaseClient.from('followers').select('*', { count: 'exact', head: true }).eq('follower_id', userId);
+
+  let modal = document.getElementById('userProfileModal');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'userProfileModal';
+  modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; z-index: 9999; backdrop-filter: blur(4px);';
+  
+  modal.innerHTML = `
+    <div style="background: #16161f; border: 1px solid #262626; border-radius: 14px; width: 90%; max-width: 380px; padding: 20px; color: #fff; text-align: center; display: flex; flex-direction: column; gap: 12px;">
+      <div style="display: flex; justify-content: flex-end;">
+        <button onclick="document.getElementById('userProfileModal').remove()" style="background: transparent; border: none; color: #fff; font-size: 16px; cursor: pointer;">✕</button>
+      </div>
+      <h2 style="margin: 0; color: var(--accent);">@${escapeHtml(profile.username)}</h2>
+      <p style="font-size: 12px; color: #a8a8a8; margin: 0;">Cargo: <b>${(profile.role || 'user').toUpperCase()}</b> | Plano: <b>${profile.is_pro ? 'PRO' : 'Grátis'}</b></p>
+      
+      <div style="display: flex; justify-content: space-around; background: #101017; padding: 12px; border-radius: 8px; margin: 10px 0;">
+        <div><b>${followersCount || 0}</b><br><small style="color: #737373;">Seguidores</small></div>
+        <div><b>${followingCount || 0}</b><br><small style="color: #737373;">A seguir</small></div>
+      </div>
+
+      ${userId !== currentUser.id ? `
+        <button onclick="openDirectMessage('${userId}', '${escapeHtml(profile.username)}')" class="primary" style="padding: 10px; border-radius: 8px; cursor: pointer; font-size: 13px;">💬 Enviar Mensagem Privada (DM)</button>
+      ` : ''}
+    </div>
+  `;
+  document.body.appendChild(modal);
+};
+
+// ============================================================
+// MENSAGENS PRIVADAS (DMs ESTILO WHATSAPP)
+// ============================================================
+
+window.loadDirectMessagesList = async function() {
+  const container = document.getElementById('messagesView');
+  if (!container) return;
+
+  // Buscar utilizadores que o utilizador segue ou com quem já falou
+  const { data: profiles } = await supabaseClient.from('profiles').select('*').neq('id', currentUser.id).order('username');
+
+  container.innerHTML = `
+    <div class="page-title">
+      <span class="eyebrow">CHAT PRIVADO</span>
+      <h1>Mensagens Diretas (DMs)</h1>
+    </div>
+    <div style="display: grid; grid-template-columns: 280px 1fr; gap: 16px; height: 65vh; background: #121216; border: 1px solid #262626; border-radius: 12px; overflow: hidden;">
+      <div style="background: #16161f; border-right: 1px solid #262626; overflow-y: auto; padding: 12px;" id="dmContactsList">
+        <p style="color: #737373; font-size: 13px;">A carregar contatos...</p>
+      </div>
+      <div id="dmChatArea" style="display: flex; flex-direction: column; background: #0b0b0f; padding: 16px; justify-content: center; align-items: center; color: #737373;">
+        <p>Selecione um contato ao lado para iniciar uma conversa privada.</p>
+      </div>
+    </div>
+  `;
+
+  const contactsContainer = document.getElementById('dmContactsList');
+  if (!profiles || profiles.length === 0) {
+    contactsContainer.innerHTML = '<p style="color: #737373; font-size: 13px;">Nenhum outro utilizador encontrado.</p>';
+    return;
+  }
+
+  contactsContainer.innerHTML = '';
+  profiles.forEach(p => {
+    const item = document.createElement('div');
+    item.style.cssText = 'padding: 10px; border-radius: 8px; cursor: pointer; margin-bottom: 6px; background: #101017; border: 1px solid #1f1f2e; transition: 0.2s;';
+    item.onclick = () => openDirectMessage(p.id, p.username);
+    item.innerHTML = `<b style="color: #fff; font-size: 13px;">@${escapeHtml(p.username)}</b>`;
+    contactsContainer.appendChild(item);
+  });
+};
+
+window.openDirectMessage = function(targetUserId, targetUsername) {
+  // Se veio do modal de perfil, fechar o modal e mudar para a aba de mensagens
+  const modal = document.getElementById('userProfileModal');
+  if (modal) modal.remove();
+
+  document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
+  const msgView = document.getElementById('messagesView');
+  if (msgView) msgView.classList.remove('hidden');
+
+  document.querySelectorAll('.nav-link').forEach(b => b.classList.remove('active'));
+  const navBtn = document.querySelector('[data-target="messagesView"]');
+  if (navBtn) navBtn.classList.add('active');
+
+  activeDmUserId = targetUserId;
+  const chatArea = document.getElementById('dmChatArea');
+  if (!chatArea) return;
+
+  chatArea.innerHTML = `
+    <div style="padding: 12px; background: #16161f; border-bottom: 1px solid #262626; width: 100%; box-sizing: border-box; display: flex; align-items: center;">
+      <h3 style="margin: 0; color: var(--accent); font-size: 15px;">💬 Conversa com @${escapeHtml(targetUsername)}</h3>
+    </div>
+    <div id="dmMessagesList" style="flex: 1; width: 100%; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+      <p style="color: #737373; text-align: center;">A carregar mensagens...</p>
+    </div>
+    <div style="width: 100%; padding-top: 10px; display: flex; gap: 8px; box-sizing: border-box;">
+      <input type="text" id="dmInput" placeholder="Escreva uma mensagem privada..." style="flex: 1; background: #101017; color: white; border: 1px solid #353542; border-radius: 8px; padding: 10px; outline: none;" onkeydown="if(event.key === 'Enter') sendDirectMessage()">
+      <button onclick="sendDirectMessage()" class="primary" style="padding: 0 20px;">Enviar</button>
+    </div>
+  `;
+
+  loadDirectMessagesHistory(targetUserId);
+  setupRealtimeDm(targetUserId);
+};
+
+async function loadDirectMessagesHistory(targetUserId) {
+  const container = document.getElementById('dmMessagesList');
+  if (!container) return;
+
+  const { data: messages } = await supabaseClient
+    .from('direct_messages')
+    .select('*')
+    .or(`and(sender_id.eq.${currentUser.id},receiver_id.eq.${targetUserId}),and(sender_id.eq.${targetUserId},receiver_id.eq.${currentUser.id})`)
+    .order('created_at', { ascending: true });
+
+  container.innerHTML = '';
+  if (!messages || messages.length === 0) {
+    container.innerHTML = '<p style="color: #737373; text-align: center; margin: auto;">Nenhuma mensagem privada ainda. Comece a conversar!</p>';
+    return;
+  }
+
+  messages.forEach(msg => appendDmMessageToChat(msg));
+  container.scrollTop = container.scrollHeight;
+}
+
+function appendDmMessageToChat(msg) {
+  const container = document.getElementById('dmMessagesList');
+  if (!container) return;
+
+  const emptyMsg = container.querySelector('p');
+  if (emptyMsg && emptyMsg.textContent.includes('Nenhuma mensagem')) {
+    emptyMsg.remove();
+  }
+
+  const isMe = msg.sender_id === currentUser.id;
+  const msgDiv = document.createElement('div');
+  msgDiv.style.cssText = `max-width: 70%; padding: 10px 14px; border-radius: 10px; font-size: 13px; align-self: ${isMe ? 'flex-end' : 'flex-start'}; background: ${isMe ? '#2563eb' : '#1f1f2e'}; color: white; word-break: break-word;`;
+  
+  msgDiv.innerHTML = `<div>${linkifyText(msg.content)}</div>`;
+  container.appendChild(msgDiv);
+  container.scrollTop = container.scrollHeight;
+}
+
+window.sendDirectMessage = async function() {
+  if (!activeDmUserId) return;
+  const input = document.getElementById('dmInput');
+  const content = input ? input.value.trim() : '';
+  if (!content) return;
+
+  input.value = '';
+
+  await supabaseClient.from('direct_messages').insert([
+    { sender_id: currentUser.id, receiver_id: activeDmUserId, content }
+  ]);
+};
+
+function setupRealtimeDm(targetUserId) {
+  if (dmSubscription) supabaseClient.removeChannel(dmSubscription);
+
+  dmSubscription = supabaseClient
+    .channel(`public:direct_messages:${currentUser.id}-${targetUserId}`)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'direct_messages'
+    }, (payload) => {
+      const msg = payload.new;
+      if (
+        (msg.sender_id === currentUser.id && msg.receiver_id === targetUserId) ||
+        (msg.sender_id === targetUserId && msg.receiver_id === currentUser.id)
+      ) {
+        appendDmMessageToChat(msg);
+      }
+    })
+    .subscribe();
 }
 
 // ============================================================
@@ -1137,7 +1404,7 @@ window.openShareOptions = async function(postId, contentSnippet, mediaUrl) {
       <hr style="border: none; border-top: 1px solid #262626; margin: 4px 0;">
 
       <div style="display: flex; gap: 10px;">
-        <button onclick="shareExternalLink('${postId}')" class="primary" style="flex: 1; padding: 10px; font-size: 13px; border-radius: 8px; cursor: pointer;">🔗 Copiar Link / Apps Externos</button>
+        <button onclick="shareExternalLink('${postId}')" class="primary" style="flex: 1; padding: 10px; font-size: 13px; border-radius: 8px; cursor: pointer;">🔗 Copiar Link Interno / Externo</button>
       </div>
     </div>
   `;
@@ -1176,16 +1443,9 @@ window.sendPostToGroup = async function(groupId, groupName, contentSnippet, medi
 
 window.shareExternalLink = function(postId) {
   const postUrl = `${window.location.origin}${window.location.pathname}#post-${postId}`;
-  if (navigator.share) {
-    navigator.share({
-      title: 'Publicação no Study Order',
-      url: postUrl
-    }).catch(() => {});
-  } else {
-    navigator.clipboard.writeText(postUrl).then(() => {
-      alert('🔗 Link da publicação copiado para a área de transferência!');
-    });
-  }
+  navigator.clipboard.writeText(postUrl).then(() => {
+    alert('🔗 Link interno da publicação copiado! Ao colar no navegador ou partilhar, abrirá diretamente no site.');
+  });
   const modal = document.getElementById('shareModalOverlay');
   if (modal) modal.remove();
 };
@@ -1265,7 +1525,6 @@ function openGroupChat(group) {
         <p style="color: #737373; text-align: center;">A carregar mensagens...</p>
       </div>
 
-      <!-- Barra de Upload de Foto/Vídeo Aula -->
       <div style="padding: 12px 16px; background: #16161f; border-top: 1px solid #262626; display: flex; gap: 8px; align-items: center;">
         <label for="groupFileInput" style="background: #262626; color: white; border: 1px solid #353542; border-radius: 8px; padding: 10px 12px; cursor: pointer; font-size: 13px;" title="Enviar foto ou videoaula">
           📁 Mídia
@@ -1421,12 +1680,16 @@ function setupRealtimeChat(groupId) {
     .subscribe();
 }
 
-// FORMATADOR DE LINKS EM AZUL E SEGURA PARA HTML
+// FORMATADOR DE LINKS COM SUPORTE A REDIRECIONAMENTO INTERNO
 function linkifyText(text) {
   if (!text) return '';
   const escaped = escapeHtml(text);
   const urlRegex = /(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%?=~_|!:,.;]*)/ig;
   return escaped.replace(urlRegex, function(url) {
+    // Se o link for do próprio site, abre internamente sem nova aba
+    if (url.includes(window.location.host) && url.includes('#post-')) {
+      return `<a href="${url}" style="color: #38bdf8; text-decoration: underline;">${url}</a>`;
+    }
     return `<a href="${url}" target="_blank" style="color: #38bdf8; text-decoration: underline;">${url}</a>`;
   });
 }
