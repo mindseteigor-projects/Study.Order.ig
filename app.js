@@ -24,6 +24,8 @@ let feedSubscription = null;
 let tasksSubscription = null;
 let subjectContentsSubscription = null;
 let selectedPostFileUrl = null;
+let selectedGroupFileUrl = null;
+let selectedGroupFileType = null;
 let isAdminAuthenticated = false;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -291,20 +293,20 @@ function initAppFeatures() {
       const file = e.target.files[0];
       if (!file) return;
 
-      alert('A carregar imagem para o post...');
+      alert('A carregar mídia para o post...');
       const fileExt = file.name.split('.').pop();
       const fileName = `feed_${Date.now()}.${fileExt}`;
       const filePath = `posts/${fileName}`;
 
       const { error: uploadError } = await supabaseClient.storage.from('imagens').upload(filePath, file);
       if (uploadError) {
-        alert('Erro ao enviar imagem: ' + uploadError.message);
+        alert('Erro ao enviar ficheiro: ' + uploadError.message);
         return;
       }
 
       const { data: urlData } = supabaseClient.storage.from('imagens').getPublicUrl(filePath);
       selectedPostFileUrl = urlData.publicUrl;
-      alert('Imagem pronta para publicar!');
+      alert('Mídia pronta para publicar!');
     };
   }
 
@@ -410,7 +412,7 @@ async function loadGlobalBanner() {
           <button onclick="document.getElementById('systemGlobalBanner').innerHTML='';" style="background: rgba(255,255,255,0.1); border: none; color: white; width: 28px; height: 28px; border-radius: 6px; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s;" title="Fechar aviso">✕</button>
         </div>
         <div style="font-size: 15px; font-weight: 500; line-height: 1.5; color: #f3f4f6; word-break: break-word;">
-          ${escapeHtml(banner.message)}
+          ${linkifyText(banner.message)}
         </div>
       </div>
     `;
@@ -933,7 +935,7 @@ function setupRealtimeGlobalTasks() {
 }
 
 // ============================================================
-// CARREGAR E RENDERIZAR POSTS (APENAS DATA + COMPARTILHAMENTO DUPLO)
+// FEED E RENDERIZAÇÃO DE POSTS (APENAS DATA + LINKS EM AZUL)
 // ============================================================
 
 async function loadPosts() {
@@ -966,7 +968,6 @@ async function renderPostCard(post) {
   card.style.marginBottom = '16px';
   card.id = `post-${post.id}`;
 
-  // Formatação apenas da DATA (sem hora)
   const dateObj = new Date(post.created_at);
   const formattedDate = dateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
@@ -989,7 +990,7 @@ async function renderPostCard(post) {
       <span style="font-size: 11px; color: #737373;">📅 ${formattedDate}</span>
     </div>
 
-    <div style="font-size: 14px; line-height: 1.5; word-break: break-word; color: #f3f4f6;">${escapeHtml(post.content)}</div>
+    <div style="font-size: 14px; line-height: 1.5; word-break: break-word; color: #f3f4f6;">${linkifyText(post.content)}</div>
     ${mediaRender}
 
     <div style="display: flex; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #262626; align-items: center;">
@@ -1019,7 +1020,7 @@ async function renderPostCard(post) {
 }
 
 // ============================================================
-// COMENTÁRIOS E OPÇÕES DE COMPARTILHAMENTO
+// COMENTÁRIOS E MODAL DE COMPARTILHAMENTO ESTILO INSTAGRAM
 // ============================================================
 
 window.toggleComments = async function(postId) {
@@ -1062,7 +1063,7 @@ async function loadComments(postId) {
     div.innerHTML = `
       <div style="flex: 1; word-break: break-word;">
         <b style="color: var(--accent);">@${c.profiles?.username || 'utilizador'}</b>: 
-        <span style="color: #e5e7eb;">${escapeHtml(c.content)}</span>
+        <span style="color: #e5e7eb;">${linkifyText(c.content)}</span>
       </div>
       ${deleteBtn}
     `;
@@ -1096,71 +1097,98 @@ window.deleteComment = async function(commentId, postId) {
   }
 };
 
-// Menu de compartilhamento duplo (Grupo ou Externo)
+// MODAL DE COMPARTILHAMENTO COM PESQUISA EM TEMPO REAL
 window.openShareOptions = async function(postId, contentSnippet, mediaUrl) {
-  const choice = prompt(
-    "Como deseja compartilhar este post?\n\n" +
-    "1 - Enviar num Grupo de Estudos do Study Order\n" +
-    "2 - Compartilhar para fora do site (WhatsApp / Copiar Link)\n\n" +
-    "Digite 1 ou 2:"
-  );
+  let modal = document.getElementById('shareModalOverlay');
+  if (modal) modal.remove();
 
-  if (choice === '1') {
-    shareToInternalGroup(contentSnippet, mediaUrl);
-  } else if (choice === '2') {
-    shareExternal(postId, contentSnippet);
-  }
+  modal = document.createElement('div');
+  modal.id = 'shareModalOverlay';
+  modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; z-index: 9999; backdrop-filter: blur(4px);';
+  document.body.appendChild(modal);
+
+  const { data: groups } = await supabaseClient.from('groups').select('*').order('name');
+
+  modal.innerHTML = `
+    <div style="background: #16161f; border: 1px solid #262626; border-radius: 14px; width: 90%; max-width: 420px; padding: 20px; color: #fff; box-shadow: 0 8px 24px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 14px;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; font-size: 16px; color: var(--accent);">📤 Compartilhar Publicação</h3>
+        <button onclick="document.getElementById('shareModalOverlay').remove()" style="background: transparent; border: none; color: #fff; font-size: 16px; cursor: pointer;">✕</button>
+      </div>
+
+      <div style="font-size: 13px; color: #a8a8a8; background: #101017; padding: 10px; border-radius: 8px; border: 1px solid #222;">
+        "${escapeHtml(contentSnippet).substring(0, 80)}..."
+      </div>
+
+      <div>
+        <label style="font-size: 11px; font-weight: bold; color: #38bdf8; display: block; margin-bottom: 6px; letter-spacing: 0.5px;">ENVIAR PARA GRUPO DE ESTUDOS</label>
+        <input type="text" id="groupSearchInput" placeholder="🔍 Pesquisar grupo..." onkeyup="filterShareGroups()" style="width: 100%; background: #101017; color: white; border: 1px solid #353542; border-radius: 8px; padding: 8px 12px; font-size: 13px; outline: none; margin-bottom: 8px; box-sizing: border-box;">
+        
+        <div id="shareGroupsListContainer" style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;">
+          ${groups && groups.length > 0 ? groups.map(g => `
+            <div class="share-group-item" data-name="${g.name.toLowerCase()}" onclick="sendPostToGroup('${g.id}', '${escapeHtml(g.name).replace(/'/g, "\\'")}', '${escapeHtml(contentSnippet).replace(/'/g, "\\'")}', '${mediaUrl || ''}')" style="padding: 8px 10px; background: #101017; border-radius: 6px; cursor: pointer; font-size: 13px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #1f1f2e; transition: 0.2s;">
+              <span>👥 ${escapeHtml(g.name)}</span>
+              <span style="font-size: 11px; color: #38bdf8; background: #1e3a8a; padding: 2px 8px; border-radius: 4px; font-weight: 500;">Enviar</span>
+            </div>
+          `).join('') : '<p style="color: #737373; font-size: 12px; text-align: center;">Nenhum grupo encontrado.</p>'}
+        </div>
+      </div>
+
+      <hr style="border: none; border-top: 1px solid #262626; margin: 4px 0;">
+
+      <div style="display: flex; gap: 10px;">
+        <button onclick="shareExternalLink('${postId}')" class="primary" style="flex: 1; padding: 10px; font-size: 13px; border-radius: 8px; cursor: pointer;">🔗 Copiar Link / Apps Externos</button>
+      </div>
+    </div>
+  `;
 };
 
-async function shareToInternalGroup(contentSnippet, mediaUrl) {
-  const { data: groups, error } = await supabaseClient.from('groups').select('*').order('name');
-  
-  if (error || !groups || groups.length === 0) {
-    alert('Não existem grupos cadastrados para enviar.');
-    return;
-  }
-
-  let optionsList = "Escolha o número do grupo para onde enviar o post:\n\n";
-  groups.forEach((g, idx) => {
-    optionsList += `${idx + 1} - ${g.name}\n`;
+window.filterShareGroups = function() {
+  const query = document.getElementById('groupSearchInput').value.toLowerCase();
+  const items = document.querySelectorAll('.share-group-item');
+  items.forEach(item => {
+    const name = item.getAttribute('data-name');
+    if (name.includes(query)) {
+      item.style.display = 'flex';
+    } else {
+      item.style.display = 'none';
+    }
   });
+};
 
-  const selectedIdx = prompt(optionsList);
-  const selectedGroup = groups[parseInt(selectedIdx) - 1];
-
-  if (!selectedGroup) {
-    if (selectedIdx) alert('Grupo inválido.');
-    return;
-  }
-
-  let formattedMessage = `📢 [POST REPUBLICADO DO FEED]\n"${contentSnippet}"`;
-  if (mediaUrl) formattedMessage += `\n🔗 Mídia: ${mediaUrl}`;
-
+window.sendPostToGroup = async function(groupId, groupName, contentSnippet, mediaUrl) {
+  let formattedMessage = `📢 [POST COMPARTILHADO]\n"${contentSnippet}"`;
+  
   await supabaseClient.from('group_messages').insert([
-    { group_id: selectedGroup.id, user_id: currentUser.id, content: formattedMessage }
+    { 
+      group_id: groupId, 
+      user_id: currentUser.id, 
+      content: formattedMessage,
+      media_url: mediaUrl || null,
+      media_type: mediaUrl ? 'image' : null
+    }
   ]);
 
-  alert(`✅ Publicação compartilhada no grupo "${selectedGroup.name}" com sucesso!`);
-}
+  alert(`✅ Publicação enviada com sucesso para o grupo "${groupName}"!`);
+  const modal = document.getElementById('shareModalOverlay');
+  if (modal) modal.remove();
+};
 
-function shareExternal(postId, contentSnippet) {
+window.shareExternalLink = function(postId) {
   const postUrl = `${window.location.origin}${window.location.pathname}#post-${postId}`;
-  const snippet = contentSnippet.substring(0, 60);
-
   if (navigator.share) {
     navigator.share({
       title: 'Publicação no Study Order',
-      text: `Confira este post no Study Order: "${snippet}..."`,
       url: postUrl
     }).catch(() => {});
   } else {
     navigator.clipboard.writeText(postUrl).then(() => {
       alert('🔗 Link da publicação copiado para a área de transferência!');
-    }).catch(() => {
-      alert('Link do post: ' + postUrl);
     });
   }
-}
+  const modal = document.getElementById('shareModalOverlay');
+  if (modal) modal.remove();
+};
 
 function setupRealtimeFeed() {
   if (feedSubscription) supabaseClient.removeChannel(feedSubscription);
@@ -1168,6 +1196,10 @@ function setupRealtimeFeed() {
     loadPosts();
   }).subscribe();
 }
+
+// ============================================================
+// GRUPOS DE ESTUDO & AULAS ONLINE (VÍDEOS E FOTOS EM TEMPO REAL)
+// ============================================================
 
 async function loadGroups() {
   if (messageSubscription) {
@@ -1202,9 +1234,9 @@ async function loadGroups() {
       <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
         <div style="flex: 1; min-width: 0;">
           <h3 style="color: var(--accent); margin-bottom: 4px; word-break: break-all;">👥 ${escapeHtml(group.name)}</h3>
-          <p style="font-size: 13px; color: #a8a8a8; margin: 0;">Clique para abrir o chat do grupo.</p>
+          <p style="font-size: 13px; color: #a8a8a8; margin: 0;">Clique para abrir a sala de aula / chat do grupo.</p>
         </div>
-        <button class="primary" style="padding: 6px 14px; font-size: 12px; flex-shrink: 0;" onclick="event.stopPropagation(); openGroupChat({id: '${group.id}', name: '${group.name}'})">Entrar no Grupo</button>
+        <button class="primary" style="padding: 6px 14px; font-size: 12px; flex-shrink: 0;" onclick="event.stopPropagation(); openGroupChat({id: '${group.id}', name: '${escapeHtml(group.name).replace(/'/g, "\\'")}'})">Entrar no Grupo</button>
       </div>
     `;
     groupsList.appendChild(card);
@@ -1213,25 +1245,34 @@ async function loadGroups() {
 
 function openGroupChat(group) {
   activeGroupId = group.id;
+  selectedGroupFileUrl = null;
+  selectedGroupFileType = null;
+
   const groupsList = document.getElementById('groupsList');
   if (!groupsList) return;
   
   groupsList.innerHTML = `
-    <div class="panel" style="display: flex; flex-direction: column; height: 65vh; padding: 0; overflow: hidden; background: #0b0b0f;">
+    <div class="panel" style="display: flex; flex-direction: column; height: 68vh; padding: 0; overflow: hidden; background: #0b0b0f;">
       <div style="padding: 16px; background: #16161f; border-bottom: 1px solid #262626; display: flex; justify-content: space-between; align-items: center;">
         <div>
           <h3 style="margin: 0; color: var(--accent);">👥 ${escapeHtml(group.name)}</h3>
-          <small style="color: #22c55e;">● Chat ao vivo</small>
+          <small style="color: #22c55e;">● Aula Online / Chat ao vivo</small>
         </div>
         <button onclick="loadGroups()" style="background: #262626; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer;">← Voltar aos Grupos</button>
       </div>
 
-      <div id="chatMessages" style="flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
+      <div id="chatMessages" style="flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;">
         <p style="color: #737373; text-align: center;">A carregar mensagens...</p>
       </div>
 
-      <div style="padding: 12px 16px; background: #16161f; border-top: 1px solid #262626; display: flex; gap: 10px;">
-        <input type="text" id="chatInput" placeholder="Escreva uma mensagem para o grupo..." style="flex: 1; background: #101017; color: white; border: 1px solid #353542; border-radius: 8px; padding: 10px; outline: none;" onkeydown="if(event.key === 'Enter') sendGroupMessage()">
+      <!-- Barra de Upload de Foto/Vídeo Aula -->
+      <div style="padding: 12px 16px; background: #16161f; border-top: 1px solid #262626; display: flex; gap: 8px; align-items: center;">
+        <label for="groupFileInput" style="background: #262626; color: white; border: 1px solid #353542; border-radius: 8px; padding: 10px 12px; cursor: pointer; font-size: 13px;" title="Enviar foto ou videoaula">
+          📁 Mídia
+        </label>
+        <input type="file" id="groupFileInput" accept="image/*,video/*" style="display: none;" onchange="handleGroupFileUpload(event)">
+
+        <input type="text" id="chatInput" placeholder="Escreva uma mensagem para a turma..." style="flex: 1; background: #101017; color: white; border: 1px solid #353542; border-radius: 8px; padding: 10px; outline: none;" onkeydown="if(event.key === 'Enter') sendGroupMessage()">
         <button onclick="sendGroupMessage()" class="primary" style="padding: 0 20px;">Enviar</button>
       </div>
     </div>
@@ -1240,6 +1281,29 @@ function openGroupChat(group) {
   loadGroupMessages(group.id);
   setupRealtimeChat(group.id);
 }
+
+window.handleGroupFileUpload = async function(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  alert('A carregar ficheiro para a aula online...');
+  const isVideo = file.type.startsWith('video/');
+  const fileExt = file.name.split('.').pop();
+  const fileName = `group_${Date.now()}.${fileExt}`;
+  const filePath = `groups/${fileName}`;
+
+  const { error: uploadError } = await supabaseClient.storage.from('imagens').upload(filePath, file);
+  if (uploadError) {
+    alert('Erro ao enviar mídia: ' + uploadError.message);
+    return;
+  }
+
+  const { data: urlData } = supabaseClient.storage.from('imagens').getPublicUrl(filePath);
+  selectedGroupFileUrl = urlData.publicUrl;
+  selectedGroupFileType = isVideo ? 'video' : 'image';
+  
+  alert(isVideo ? '📹 Vídeo pronto para enviar!' : '🖼️ Imagem pronta para enviar!');
+};
 
 async function loadGroupMessages(groupId) {
   const container = document.getElementById('chatMessages');
@@ -1253,7 +1317,7 @@ async function loadGroupMessages(groupId) {
 
   container.innerHTML = '';
   if (!messages || messages.length === 0) {
-    container.innerHTML = '<p style="color: #737373; text-align: center; margin: auto;">Nenhuma mensagem neste grupo ainda. Seja o primeiro a enviar!</p>';
+    container.innerHTML = '<p style="color: #737373; text-align: center; margin: auto;">Nenhuma mensagem neste grupo ainda. Seja o primeiro a participar!</p>';
     return;
   }
 
@@ -1272,12 +1336,31 @@ function appendMessageToChat(msg) {
 
   const isMe = msg.user_id === currentUser.id;
   const msgDiv = document.createElement('div');
-  msgDiv.style.cssText = `max-width: 70%; padding: 10px 14px; border-radius: 10px; font-size: 13px; align-self: ${isMe ? 'flex-end' : 'flex-start'}; background: ${isMe ? '#2563eb' : '#1f1f2e'}; color: white; word-break: break-word;`;
+  msgDiv.style.cssText = `max-width: 75%; padding: 10px 14px; border-radius: 10px; font-size: 13px; align-self: ${isMe ? 'flex-end' : 'flex-start'}; background: ${isMe ? '#2563eb' : '#1f1f2e'}; color: white; word-break: break-word; border: 1px solid ${isMe ? '#3b82f6' : '#262626'};`;
   
   const username = msg.profiles?.username || 'utilizador';
+
+  let mediaHtml = '';
+  if (msg.media_url) {
+    if (msg.media_type === 'video' || msg.media_url.match(/\.(mp4|webm|ogg)$/i)) {
+      mediaHtml = `
+        <div style="margin-top: 8px; border-radius: 8px; overflow: hidden; background: #000;">
+          <video src="${msg.media_url}" controls style="width: 100%; max-height: 250px; display: block;"></video>
+        </div>
+      `;
+    } else {
+      mediaHtml = `
+        <div style="margin-top: 8px; border-radius: 8px; overflow: hidden;">
+          <a href="${msg.media_url}" target="_blank"><img src="${msg.media_url}" style="width: 100%; max-height: 250px; object-fit: cover; display: block;"></a>
+        </div>
+      `;
+    }
+  }
+
   msgDiv.innerHTML = `
-    <div style="font-size: 11px; font-weight: bold; color: ${isMe ? '#93c5fd' : '#38bdf8'}; margin-bottom: 2px;">@${username}</div>
-    <div>${escapeHtml(msg.content)}</div>
+    <div style="font-size: 11px; font-weight: bold; color: ${isMe ? '#93c5fd' : '#38bdf8'}; margin-bottom: 4px;">@${username}</div>
+    <div>${linkifyText(msg.content)}</div>
+    ${mediaHtml}
   `;
   container.appendChild(msgDiv);
   container.scrollTop = container.scrollHeight;
@@ -1287,14 +1370,27 @@ window.sendGroupMessage = async function() {
   if (!activeGroupId) return;
   const input = document.getElementById('chatInput');
   const content = input ? input.value.trim() : '';
-  if (!content) return;
 
-  input.value = '';
+  if (!content && !selectedGroupFileUrl) return;
+
+  if (input) input.value = '';
+
+  const mediaUrlToSend = selectedGroupFileUrl;
+  const mediaTypeToSend = selectedGroupFileType;
+
+  selectedGroupFileUrl = null;
+  selectedGroupFileType = null;
 
   await supabaseClient.from('group_messages').insert([
-    { group_id: activeGroupId, user_id: currentUser.id, content }
+    { 
+      group_id: activeGroupId, 
+      user_id: currentUser.id, 
+      content,
+      media_url: mediaUrlToSend,
+      media_type: mediaTypeToSend
+    }
   ]);
-}
+};
 
 function setupRealtimeChat(groupId) {
   if (messageSubscription) {
@@ -1323,6 +1419,16 @@ function setupRealtimeChat(groupId) {
       appendMessageToChat(fullMessage);
     })
     .subscribe();
+}
+
+// FORMATADOR DE LINKS EM AZUL E SEGURA PARA HTML
+function linkifyText(text) {
+  if (!text) return '';
+  const escaped = escapeHtml(text);
+  const urlRegex = /(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%?=~_|!:,.;]*)/ig;
+  return escaped.replace(urlRegex, function(url) {
+    return `<a href="${url}" target="_blank" style="color: #38bdf8; text-decoration: underline;">${url}</a>`;
+  });
 }
 
 function escapeHtml(text) {
