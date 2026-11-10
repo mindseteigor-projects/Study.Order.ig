@@ -51,6 +51,7 @@
       <button class="side-action nav-link" data-target="allTasksView">📅 Provas & Tarefas</button>
       <button class="side-action nav-link" data-target="groupsView">👥 Grupos & Comunidades</button>
       <button class="side-action nav-link" data-target="messagesView">💬 Mensagens (DMs)</button>
+      <button class="side-action nav-link" data-target="notificationsView">🔔 Notificações</button>
       <button class="side-action nav-link" data-target="profileView">👤 Meu Perfil</button>
       <button class="side-action nav-link" data-target="proView">⭐ Plano PRO (R$ 19,90)</button>
       
@@ -123,7 +124,17 @@
         <!-- 4. MENSAGENS PRIVADAS (DMS) -->
         <div id="messagesView" class="view hidden"></div>
 
-        <!-- 5. ABA DE PERFIL E SUGESTÕES ESTILO INSTAGRAM -->
+        <!-- 5. NOTIFICAÇÕES -->
+        <div id="notificationsView" class="view hidden">
+          <div class="page-title">
+            <div><span class="eyebrow">ATIVIDADE RECENTE</span><h1>Notificações</h1></div>
+          </div>
+          <div id="notificationsList" style="display: flex; flex-direction: column; gap: 10px;">
+            <p style="color: #737373;">A carregar notificações...</p>
+          </div>
+        </div>
+
+        <!-- 6. ABA DE PERFIL E SUGESTÕES ESTILO INSTAGRAM -->
         <div id="profileView" class="view hidden">
           <div class="panel" style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
             <div>
@@ -146,7 +157,7 @@
           </div>
         </div>
 
-        <!-- 6. PLANO PRO -->
+        <!-- 7. PLANO PRO -->
         <div id="proView" class="view hidden">
           <div class="hero" style="background: linear-gradient(135deg, #2b2300, #15151c); border-color: var(--accent);">
             <div>
@@ -158,7 +169,7 @@
           </div>
         </div>
 
-        <!-- 7. MATÉRIA DETALHADA -->
+        <!-- 8. MATÉRIA DETALHADA -->
         <div id="subjectView" class="view hidden">
           <div class="page-title">
             <div><span class="eyebrow">MATÉRIA</span><h1 id="subjectTitle">Matemática</h1></div>
@@ -174,7 +185,7 @@
           </div>
         </div>
 
-        <!-- 8. TODAS AS TAREFAS / AGENDA -->
+        <!-- 9. TODAS AS TAREFAS / AGENDA -->
         <div id="allTasksView" class="view hidden">
           <div class="page-title">
             <div><span class="eyebrow">AGENDA</span><h1>Provas, Lembretes e Tarefas</h1></div>
