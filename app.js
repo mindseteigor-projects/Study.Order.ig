@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS (COM PEDIDO DE CONTATO E TEMPO REAL)
+// STUDY ORDER — APP.JS (COMPLETO)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -36,6 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupAuthForm();
   checkUser();
   setupNavigation();
+  setupProfileNavigation();
   setupSecretAdminShortcut();
   handleInternalHashNavigation();
 });
@@ -310,6 +311,95 @@ function setupNavigation() {
     };
   }
 }
+
+function setupProfileNavigation() {
+  document.querySelectorAll('.nav-link').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.dataset.target;
+      if (targetId === 'profileView') {
+        loadUserProfileView();
+      }
+    });
+  });
+}
+
+async function loadUserProfileView() {
+  if (!currentUser) return;
+
+  const usernameEl = document.getElementById('profileUsernameDisplay');
+  const emailEl = document.getElementById('profileEmailDisplay');
+  const followersCountEl = document.getElementById('statFollowersCount');
+  const followingCountEl = document.getElementById('statFollowingCount');
+  const suggestedContainer = document.getElementById('suggestedUsersList');
+
+  if (usernameEl) usernameEl.textContent = `@${currentProfile?.username || currentUser.email.split('@')[0]}`;
+  if (emailEl) emailEl.textContent = currentUser.email;
+
+  const { count: followersCount } = await supabaseClient
+    .from('followers')
+    .select('*', { count: 'exact', head: true })
+    .eq('following_id', currentUser.id);
+
+  const { count: followingCount } = await supabaseClient
+    .from('followers')
+    .select('*', { count: 'exact', head: true })
+    .eq('follower_id', currentUser.id);
+
+  if (followersCountEl) followersCountEl.textContent = followersCount ?? 0;
+  if (followingCountEl) followingCountEl.textContent = followingCount ?? 0;
+
+  const { data: allProfiles } = await supabaseClient
+    .from('profiles')
+    .select('*')
+    .neq('id', currentUser.id);
+
+  const { data: myFollowing } = await supabaseClient
+    .from('followers')
+    .select('following_id')
+    .eq('follower_id', currentUser.id);
+
+  const followingIds = myFollowing ? myFollowing.map(f => f.following_id) : [];
+
+  if (suggestedContainer) {
+    suggestedContainer.innerHTML = '';
+    const suggestions = allProfiles ? allProfiles.filter(p => !followingIds.includes(p.id)) : [];
+
+    if (suggestions.length === 0) {
+      suggestedContainer.innerHTML = '<p style="color: #737373; font-size: 13px;">Não há novas sugestões no momento. Já segue todos os utilizadores!</p>';
+      return;
+    }
+
+    suggestions.forEach(user => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; background: #101017; padding: 12px 16px; border-radius: 8px; border: 1px solid #1f1f2e;';
+      row.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 36px; height: 36px; border-radius: 50%; background: #2563eb; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white;">
+            ${user.username ? user.username.charAt(0).toUpperCase() : 'U'}
+          </div>
+          <div>
+            <b style="color: #fff; font-size: 14px; cursor: pointer;" onclick="openUserProfile('${user.id}')">@${escapeHtml(user.username)}</b>
+            <p style="font-size: 11px; color: #737373; margin: 0;">Membro da comunidade</p>
+          </div>
+        </div>
+        <button onclick="followUserFromSuggestions('${user.id}')" class="primary" style="padding: 6px 14px; font-size: 12px; border-radius: 6px; cursor: pointer;">Seguir</button>
+      `;
+      suggestedContainer.appendChild(row);
+    });
+  }
+}
+
+window.followUserFromSuggestions = async function(targetUserId) {
+  const { error } = await supabaseClient.from('followers').insert([
+    { follower_id: currentUser.id, following_id: targetUserId }
+  ]);
+
+  if (error) {
+    alert('Erro ao seguir utilizador: ' + error.message);
+  } else {
+    loadUserProfileView();
+  }
+};
 
 function initAppFeatures() {
   loadGlobalBanner();
@@ -1108,6 +1198,9 @@ window.toggleFollowUser = async function(targetUserId) {
     alert('Agora está a seguir este utilizador!');
   }
   loadPosts();
+  if (document.getElementById('profileView') && !document.getElementById('profileView').classList.contains('hidden')) {
+    loadUserProfileView();
+  }
 };
 
 window.openUserProfile = async function(userId) {
@@ -1117,7 +1210,6 @@ window.openUserProfile = async function(userId) {
   const { count: followersCount } = await supabaseClient.from('followers').select('*', { count: 'exact', head: true }).eq('following_id', userId);
   const { count: followingCount } = await supabaseClient.from('followers').select('*', { count: 'exact', head: true }).eq('follower_id', userId);
 
-  // Verificar status de convite entre currentUser e este userId
   const { data: reqData } = await supabaseClient
     .from('contact_requests')
     .select('*')
@@ -1185,7 +1277,6 @@ window.loadDirectMessagesList = async function() {
   const container = document.getElementById('messagesView');
   if (!container) return;
 
-  // 1. Buscar convites aceites (amigos/contactos)
   const { data: acceptedRequests } = await supabaseClient
     .from('contact_requests')
     .select('*')
@@ -1200,14 +1291,12 @@ window.loadDirectMessagesList = async function() {
     });
   }
 
-  // 2. Buscar convites pendentes recebidos
   const { data: pendingRequests } = await supabaseClient
     .from('contact_requests')
     .select('*, profiles:sender_id (username)')
     .eq('receiver_id', currentUser.id)
     .eq('status', 'pending');
 
-  // 3. Buscar perfis dos amigos
   let friends = [];
   if (friendIds.length > 0) {
     const { data: profilesData } = await supabaseClient
@@ -1224,10 +1313,8 @@ window.loadDirectMessagesList = async function() {
     </div>
     <div style="display: grid; grid-template-columns: 320px 1fr; gap: 16px; height: 68vh; background: #121216; border: 1px solid #262626; border-radius: 12px; overflow: hidden;">
       
-      <!-- Coluna Esquerda: Pesquisa, Pedidos Pendentes e Contactos -->
       <div style="background: #16161f; border-right: 1px solid #262626; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 16px;">
         
-        <!-- Campo de Pesquisa Estilo Instagram -->
         <div>
           <h4 style="font-size: 11px; color: var(--accent); letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase;">🔍 Pesquisar Pessoas</h4>
           <input type="text" id="userSearchInput" placeholder="Digitar @username..." onkeyup="searchUsersList()" style="width: 100%; background: #101017; color: white; border: 1px solid #353542; border-radius: 8px; padding: 8px 10px; font-size: 13px; outline: none; box-sizing: border-box;">
@@ -1266,7 +1353,6 @@ window.loadDirectMessagesList = async function() {
 
       </div>
 
-      <!-- Coluna Direita: Chat Privado -->
       <div id="dmChatArea" style="display: flex; flex-direction: column; background: #0b0b0f; padding: 16px; justify-content: center; align-items: center; color: #737373;">
         <p>Selecione um contacto à esquerda para iniciar a conversa.</p>
       </div>
@@ -1275,7 +1361,6 @@ window.loadDirectMessagesList = async function() {
   `;
 };
 
-// Função de Pesquisa em Tempo Real
 window.searchUsersList = async function() {
   const query = document.getElementById('userSearchInput').value.trim().toLowerCase();
   const container = document.getElementById('searchResultsContainer');
@@ -1309,71 +1394,6 @@ window.searchUsersList = async function() {
     `;
     container.appendChild(item);
   });
-};
-  // 2. Buscar convites pendentes recebidos
-  const { data: pendingRequests } = await supabaseClient
-    .from('contact_requests')
-    .select('*, profiles:sender_id (username)')
-    .eq('receiver_id', currentUser.id)
-    .eq('status', 'pending');
-
-  // 3. Buscar perfis dos amigos
-  let friends = [];
-  if (friendIds.length > 0) {
-    const { data: profilesData } = await supabaseClient
-      .from('profiles')
-      .select('*')
-      .in('id', friendIds);
-    friends = profilesData || [];
-  }
-
-  container.innerHTML = `
-    <div class="page-title">
-      <span class="eyebrow">PRIVACIDADE E MENSAGENS</span>
-      <h1>Chat Privado & Convites</h1>
-    </div>
-    <div style="display: grid; grid-template-columns: 320px 1fr; gap: 16px; height: 68vh; background: #121216; border: 1px solid #262626; border-radius: 12px; overflow: hidden;">
-      
-      <!-- Coluna Esquerda: Pedidos Pendentes e Contactos -->
-      <div style="background: #16161f; border-right: 1px solid #262626; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 16px;">
-        
-        <div>
-          <h4 style="font-size: 11px; color: #38bdf8; letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase;">📩 Convites Recebidos</h4>
-          <div id="pendingRequestsContainer" style="display: flex; flex-direction: column; gap: 6px;">
-            ${pendingRequests && pendingRequests.length > 0 ? pendingRequests.map(req => `
-              <div style="background: #101017; border: 1px solid #222; padding: 10px; border-radius: 8px; font-size: 12px;">
-                <b style="color: #fff;">@${escapeHtml(req.profiles?.username || 'utilizador')}</b> quer conversar.
-                <div style="display: flex; gap: 6px; margin-top: 8px;">
-                  <button onclick="respondContactRequest('${req.id}', 'accepted')" class="primary" style="flex:1; padding: 4px; font-size: 11px;">Aceitar</button>
-                  <button onclick="respondContactRequest('${req.id}', 'rejected')" style="flex:1; background:#ef4444; color:white; border:none; padding: 4px; border-radius: 4px; cursor:pointer; font-size: 11px;">Recusar</button>
-                </div>
-              </div>
-            `).join('') : '<small style="color: #737373;">Nenhum convite pendente.</small>'}
-          </div>
-        </div>
-
-        <hr style="border: none; border-top: 1px solid #262626; margin: 0;">
-
-        <div>
-          <h4 style="font-size: 11px; color: #22c55e; letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase;">👥 Meus Contactos</h4>
-          <div id="friendsListContainer" style="display: flex; flex-direction: column; gap: 6px;">
-            ${friends.length > 0 ? friends.map(f => `
-              <div onclick="openDirectMessage('${f.id}', '${escapeHtml(f.username)}')" style="padding: 10px; background: #101017; border-radius: 8px; cursor: pointer; border: 1px solid #1f1f2e; transition: 0.2s;">
-                <b style="color: #fff; font-size: 13px;">@${escapeHtml(f.username)}</b>
-              </div>
-            `).join('') : '<small style="color: #737373;">Ainda não tem contactos aceites. Vá ao perfil de um utilizador no feed para enviar um convite!</small>'}
-          </div>
-        </div>
-
-      </div>
-
-      <!-- Coluna Direita: Chat Privado -->
-      <div id="dmChatArea" style="display: flex; flex-direction: column; background: #0b0b0f; padding: 16px; justify-content: center; align-items: center; color: #737373;">
-        <p>Selecione um contacto à esquerda para iniciar a conversa.</p>
-      </div>
-
-    </div>
-  `;
 };
 
 window.respondContactRequest = async function(requestId, newStatus) {
