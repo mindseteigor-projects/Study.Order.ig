@@ -1,5 +1,5 @@
 // ============================================================
-// STUDY ORDER — APP.JS (COMPLETO)
+// STUDY ORDER — APP.JS (COMPLETO E ATUALIZADO)
 // ============================================================
 
 const SUPABASE_URL = window.SUPABASE_URL;
@@ -37,6 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
   checkUser();
   setupNavigation();
   setupProfileNavigation();
+  setupNotificationsNavigation();
   setupSecretAdminShortcut();
   handleInternalHashNavigation();
 });
@@ -323,6 +324,17 @@ function setupProfileNavigation() {
   });
 }
 
+function setupNotificationsNavigation() {
+  document.querySelectorAll('.nav-link').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.dataset.target;
+      if (targetId === 'notificationsView') {
+        loadNotificationsView();
+      }
+    });
+  });
+}
+
 async function loadUserProfileView() {
   if (!currentUser) return;
 
@@ -397,9 +409,48 @@ window.followUserFromSuggestions = async function(targetUserId) {
   if (error) {
     alert('Erro ao seguir utilizador: ' + error.message);
   } else {
+    await supabaseClient.from('notifications').insert([
+      { user_id: targetUserId, actor_id: currentUser.id, type: 'follow', content: 'começou a seguir-te.' }
+    ]).catch(() => {});
+
     loadUserProfileView();
   }
 };
+
+async function loadNotificationsView() {
+  const container = document.getElementById('notificationsList');
+  if (!container) return;
+
+  const { data: notifications } = await supabaseClient
+    .from('notifications')
+    .select('*, profiles:actor_id (username)')
+    .eq('user_id', currentUser.id)
+    .order('created_at', { ascending: false });
+
+  container.innerHTML = '';
+
+  if (!notifications || notifications.length === 0) {
+    container.innerHTML = '<p style="color: #737373; padding: 20px;">Nenhuma notificação por enquanto.</p>';
+    return;
+  }
+
+  notifications.forEach(notif => {
+    const card = document.createElement('div');
+    card.style.cssText = 'background: #16161f; border: 1px solid #262626; border-radius: 10px; padding: 14px; display: flex; justify-content: space-between; align-items: center; font-size: 13px;';
+    
+    const actorName = notif.profiles?.username || 'alguém';
+    const dateStr = new Date(notif.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+    card.innerHTML = `
+      <div>
+        <b style="color: var(--accent); cursor: pointer;" onclick="openUserProfile('${notif.actor_id}')">@${escapeHtml(actorName)}</b> 
+        <span style="color: #e5e7eb;">${escapeHtml(notif.content)}</span>
+        <div style="font-size: 11px; color: #737373; margin-top: 4px;">📅 ${dateStr}</div>
+      </div>
+    `;
+    container.appendChild(card);
+  });
+}
 
 function initAppFeatures() {
   loadGlobalBanner();
@@ -1179,7 +1230,7 @@ async function renderPostCard(post, followingIds = []) {
 }
 
 // ============================================================
-// SEGUIR E PERFIL COM CONVITE DE CONTATO (PRIVACIDADE)
+// SEGUIR, DEIXAR DE SEGUIR E NOTIFICAÇÕES
 // ============================================================
 
 window.toggleFollowUser = async function(targetUserId) {
@@ -1195,8 +1246,14 @@ window.toggleFollowUser = async function(targetUserId) {
     alert('Deixou de seguir este utilizador.');
   } else {
     await supabaseClient.from('followers').insert([{ follower_id: currentUser.id, following_id: targetUserId }]);
+    
+    await supabaseClient.from('notifications').insert([
+      { user_id: targetUserId, actor_id: currentUser.id, type: 'follow', content: 'começou a seguir-te.' }
+    ]).catch(() => {});
+
     alert('Agora está a seguir este utilizador!');
   }
+
   loadPosts();
   if (document.getElementById('profileView') && !document.getElementById('profileView').classList.contains('hidden')) {
     loadUserProfileView();
@@ -1263,6 +1320,10 @@ window.sendContactRequest = async function(targetUserId, targetUsername) {
   if (error) {
     alert('Erro ao enviar convite: ' + error.message);
   } else {
+    await supabaseClient.from('notifications').insert([
+      { user_id: targetUserId, actor_id: currentUser.id, type: 'request', content: 'enviou-te um convite de contacto.' }
+    ]).catch(() => {});
+
     alert(`✅ Convite de contacto enviado para @${targetUsername}!`);
     const modal = document.getElementById('userProfileModal');
     if (modal) modal.remove();
@@ -1563,6 +1624,8 @@ window.submitComment = async function(postId) {
 
   input.value = '';
 
+  const { data: postData } = await supabaseClient.from('posts').select('user_id').eq('id', postId).single();
+
   const { error } = await supabaseClient.from('post_comments').insert([
     { post_id: postId, user_id: currentUser.id, content }
   ]);
@@ -1570,6 +1633,12 @@ window.submitComment = async function(postId) {
   if (error) {
     alert('Erro ao enviar comentário: ' + error.message);
   } else {
+    if (postData && postData.user_id !== currentUser.id) {
+      await supabaseClient.from('notifications').insert([
+        { user_id: postData.user_id, actor_id: currentUser.id, type: 'comment', content: 'comentou na tua publicação.' }
+      ]).catch(() => {});
+    }
+
     loadComments(postId);
   }
 };
