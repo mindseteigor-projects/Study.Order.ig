@@ -36,8 +36,6 @@ document.addEventListener('DOMContentLoaded', () => {
   setupAuthForm();
   checkUser();
   setupNavigation();
-  setupProfileNavigation();
-  setupNotificationsNavigation();
   setupSecretAdminShortcut();
   handleInternalHashNavigation();
 });
@@ -293,6 +291,10 @@ function setupNavigation() {
         loadPosts();
       } else if (targetId === 'messagesView') {
         loadDirectMessagesList();
+      } else if (targetId === 'profileView') {
+        loadUserProfileView();
+      } else if (targetId === 'notificationsView') {
+        loadNotificationsView();
       }
     });
   });
@@ -311,28 +313,6 @@ function setupNavigation() {
       location.reload();
     };
   }
-}
-
-function setupProfileNavigation() {
-  document.querySelectorAll('.nav-link').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const targetId = btn.dataset.target;
-      if (targetId === 'profileView') {
-        loadUserProfileView();
-      }
-    });
-  });
-}
-
-function setupNotificationsNavigation() {
-  document.querySelectorAll('.nav-link').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const targetId = btn.dataset.target;
-      if (targetId === 'notificationsView') {
-        loadNotificationsView();
-      }
-    });
-  });
 }
 
 async function loadUserProfileView() {
