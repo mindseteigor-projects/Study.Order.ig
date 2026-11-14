@@ -185,19 +185,28 @@
         <div id="notificationsList" class="stack lg"></div>
       </div>
 
-      <!-- 6. PERFIL E SUGESTÕES -->
+      <!-- 6. PERFIL (ESTILO INSTAGRAM) -->
       <div id="profileView" class="view hidden">
-        <div class="panel profile-head">
-          <div>
-            <span class="eyebrow">A SUA CONTA</span>
-            <h1 id="profileUsernameDisplay" class="accent" style="margin: 4px 0;">@utilizador</h1>
+        <div class="panel ig-header">
+          <div id="profileAvatar" class="ig-avatar-wrap" data-act="edit-profile" title="Alterar foto"></div>
+          <div class="ig-info">
+            <div class="ig-top">
+              <h1 id="profileUsernameDisplay" class="ig-handle accent">@utilizador</h1>
+              <button type="button" class="btn-secondary" data-act="edit-profile">Editar perfil</button>
+            </div>
+            <div class="ig-stats">
+              <button type="button" class="ig-stat" data-act="scroll-posts"><b id="statPostsCount">0</b> publicações</button>
+              <button type="button" class="ig-stat" data-act="show-followers"><b id="statFollowersCount">0</b> seguidores</button>
+              <button type="button" class="ig-stat" data-act="show-following"><b id="statFollowingCount">0</b> a seguir</button>
+            </div>
+            <p id="profileBioDisplay" class="ig-bio"></p>
             <p id="profileEmailDisplay" class="muted-s" style="margin: 0;"></p>
           </div>
-          <div class="follow-stats">
-            <div><b id="statFollowersCount">0</b><br><small>Seguidores</small></div>
-            <div><b id="statFollowingCount">0</b><br><small>A seguir</small></div>
-          </div>
         </div>
+
+        <div class="ig-tabs">▦ PUBLICAÇÕES</div>
+        <div id="profilePostsGrid" class="ig-grid"></div>
+
         <div class="panel">
           <div class="panel-head"><h2>✨ Sugestões para seguir</h2></div>
           <p class="muted-s" style="margin-bottom: 14px;">Descubra novos estudantes na comunidade para acompanhar o progresso.</p>
