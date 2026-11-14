@@ -434,6 +434,8 @@
       b.textContent = f ? 'A seguir' : 'Seguir'; b.classList.toggle('following', f);
     });
     document.querySelector(`.suggest-row[data-id="${targetId}"]`)?.remove();
+    const sugBox = $('suggestedUsersList');
+    if (sugBox && !sugBox.querySelector('.suggest-row')) sugBox.innerHTML = '<p class="muted-s">Não há novas sugestões no momento. Já segue todos os utilizadores!</p>';
     if (isVisible('profileView')) loadFollowCounts();
   }
 
@@ -451,12 +453,173 @@
     $('statFollowingCount').textContent = c.following;
   }
 
-  async function loadProfileView() {
-    $('profileUsernameDisplay').textContent = '@' + (state.profile?.username || '');
+  // ---------- Avatar ----------
+  function avatarHtml(p, size = '') {
+    const url = safeUrl(p?.avatar_url || '');
+    const name = p?.username || 'utilizador';
+    return url
+      ? `<img class="avatar-img ${size}" src="${esc(url)}" alt="Foto de @${esc(name)}" loading="lazy" decoding="async">`
+      : `<div class="avatar ${size}">${esc(name.charAt(0).toUpperCase())}</div>`;
+  }
+
+  // ---------- Perfil estilo Instagram ----------
+  function renderProfileHeader() {
+    const p = state.profile || {};
+    $('profileAvatar').innerHTML = avatarHtml(p, 'xl');
+    $('profileUsernameDisplay').textContent = '@' + (p.username || '');
+    const bio = (p.bio || '').trim();
+    $('profileBioDisplay').innerHTML = bio ? linkify(bio) : '<span class="muted-s">Adicione uma biografia em “Editar perfil”.</span>';
     $('profileEmailDisplay').textContent = state.user.email || '';
+  }
+
+  function loadProfileView() {
+    renderProfileHeader();
     loadFollowCounts();
+    loadMyPosts();
+    loadSuggestions();
+  }
+
+  async function loadMyPosts() {
+    const grid = $('profilePostsGrid');
+    const { data, error, count } = await sb.from('posts')
+      .select('id,content,media_url,created_at', { count: 'exact' })
+      .eq('user_id', me()).order('created_at', { ascending: false }).limit(200);
+    if (error) { grid.innerHTML = '<p class="empty ig-empty">Erro ao carregar as publicações.</p>'; return; }
+    state.myPosts = data || [];
+    $('statPostsCount').textContent = count ?? state.myPosts.length;
+    renderMyPostsGrid();
+  }
+
+  function renderMyPostsGrid() {
+    const grid = $('profilePostsGrid');
+    const posts = state.myPosts || [];
+    if (!posts.length) {
+      grid.innerHTML = '<p class="empty ig-empty">Você ainda não publicou nada. Compartilhe sua primeira dica no Feed!</p>';
+      return;
+    }
+    grid.innerHTML = posts.map((p) => {
+      const media = safeUrl(p.media_url || '');
+      const inner = media
+        ? `<img src="${esc(media)}" alt="Publicação" loading="lazy" decoding="async">`
+        : `<p>${esc((p.content || '').slice(0, 160))}</p>`;
+      return `<div class="ig-tile${media ? '' : ' text'}" data-act="view-my-post" data-id="${p.id}" tabindex="0">${inner}
+        <button type="button" class="ig-del" data-act="delete-my-post" data-id="${p.id}" title="Excluir publicação" aria-label="Excluir publicação">🗑</button></div>`;
+    }).join('');
+  }
+
+  function openMyPost(id) {
+    const p = (state.myPosts || []).find((x) => x.id === id); if (!p) return;
+    const media = safeUrl(p.media_url || '');
+    openModal(`<div class="profile-modal" style="text-align:left">
+      ${media ? `<img class="post-modal-img" src="${esc(media)}" alt="Publicação" decoding="async">` : ''}
+      ${p.content ? `<div class="post-body">${linkify(p.content)}</div>` : ''}
+      <small class="muted-s">📅 ${esc(fmtDate(p.created_at))}</small>
+      <button class="btn-sm btn-red big" data-act="delete-my-post" data-id="${p.id}">🗑 Excluir publicação</button></div>`);
+  }
+
+  async function deleteMyPost(id) {
+    if (!confirm('Excluir esta publicação? Essa ação não pode ser desfeita.')) return;
+    const { data, error } = await sb.from('posts').delete().eq('id', id).eq('user_id', me()).select('id');
+    if (error || !data?.length) { toast('Erro ao excluir: ' + (error?.message || 'sem permissão.')); return; }
+    state.myPosts = (state.myPosts || []).filter((p) => p.id !== id);
+    postCache.delete(id);
+    $('post-' + id)?.remove();
+    $('statPostsCount').textContent = String(Math.max(0, (parseInt($('statPostsCount').textContent, 10) || 1) - 1));
+    renderMyPostsGrid();
+    closeModal();
+    toast('Publicação excluída.');
+  }
+
+  async function showFollowList(kind) {
+    const followers = kind === 'followers';
+    openModal(`<h2 class="modal-title">${followers ? 'Seguidores' : 'A seguir'}</h2>
+      <div id="followListBox" class="stack lg scroll-box"><p class="muted-s">A carregar...</p></div>`);
+    const col = followers ? 'follower_id' : 'following_id';
+    const key = followers ? 'following_id' : 'follower_id';
+    const { data: rel, error } = await sb.from('followers').select(col).eq(key, me()).limit(100);
+    const box = $('followListBox'); if (!box) return;
+    if (error) { box.innerHTML = '<p class="muted-s">Erro ao carregar a lista.</p>'; return; }
+    const ids = (rel || []).map((r) => r[col]);
+    if (!ids.length) {
+      box.innerHTML = `<p class="muted-s">${followers ? 'Ainda ninguém te segue.' : 'Você ainda não segue ninguém.'}</p>`;
+      return;
+    }
+    const { data: people } = await sb.from('profiles').select('id,username,avatar_url').in('id', ids);
+    box.innerHTML = (people || []).map((u) => `
+      <div class="person-row">
+        <div class="person-main">${avatarHtml(u)}<b class="link-like" data-act="open-profile" data-id="${u.id}">@${esc(u.username)}</b></div>
+        ${u.id === me() ? '' : followBtn(u.id)}
+      </div>`).join('');
+  }
+
+  // ---------- Editar perfil ----------
+  let pendingAvatar = null;
+  let removeAvatar = false;
+
+  function openEditProfile() {
+    pendingAvatar = null; removeAvatar = false;
+    const p = state.profile || {};
+    openModal(`<h2 class="modal-title">Editar perfil</h2>
+      <div class="ep-avatar">
+        <div id="epAvatarPreview">${avatarHtml(p, 'xl')}</div>
+        <div class="ep-actions">
+          <label class="upload-chip">📷 Alterar foto<input id="epAvatarInput" class="hidden" type="file" accept="image/*"></label>
+          <button type="button" class="btn-secondary" data-act="remove-avatar">Remover foto</button>
+        </div>
+      </div>
+      <label>Nome de utilizador<input id="epUsername" type="text" maxlength="30" value="${esc(p.username || '')}"></label>
+      <label>Biografia <small class="muted-s" id="epBioCount"></small>
+        <textarea id="epBio" rows="4" maxlength="160" placeholder="Fale um pouco sobre você e seus estudos...">${esc(p.bio || '')}</textarea></label>
+      <button class="primary full" id="epSaveBtn" data-act="save-profile">Salvar alterações</button>`);
+    $('epAvatarInput').addEventListener('change', (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      if (!IMG_TYPES.includes(f.type)) { toast('Use uma imagem JPG, PNG, WEBP, GIF ou AVIF.'); e.target.value = ''; return; }
+      if (f.size > 5 * 1024 * 1024) { toast('A foto deve ter até 5 MB.'); e.target.value = ''; return; }
+      pendingAvatar = f; removeAvatar = false;
+      $('epAvatarPreview').innerHTML = `<img class="avatar-img xl" src="${esc(URL.createObjectURL(f))}" alt="Pré-visualização">`;
+    });
+    const bio = $('epBio'), counter = $('epBioCount');
+    const update = () => { counter.textContent = `${bio.value.length}/160`; };
+    bio.addEventListener('input', update); update();
+  }
+
+  function clearAvatarChoice() {
+    pendingAvatar = null; removeAvatar = true;
+    $('epAvatarPreview').innerHTML = avatarHtml({ username: $('epUsername')?.value || state.profile?.username }, 'xl');
+  }
+
+  async function saveProfile() {
+    const btn = $('epSaveBtn');
+    const username = $('epUsername').value.trim().replace(/^@/, '');
+    const bio = $('epBio').value.trim().slice(0, 160);
+    if (!/^[a-zA-Z0-9._]{3,30}$/.test(username)) {
+      toast('Utilizador: 3 a 30 caracteres (letras, números, ponto ou _).'); return;
+    }
+    btn.disabled = true;
+    try {
+      let avatar_url = state.profile?.avatar_url || null;
+      if (pendingAvatar) avatar_url = await uploadFile(pendingAvatar, 'avatars', IMG_TYPES);
+      else if (removeAvatar) avatar_url = null;
+      const { data, error } = await sb.from('profiles').update({ username, bio, avatar_url })
+        .eq('id', me()).select('*').single();
+      if (error) throw error;
+      state.profile = data;
+      nameCache.set(me(), data.username);
+      renderProfileHeader();
+      closeModal();
+      toast('Perfil atualizado!');
+    } catch (err) {
+      toast(err.code === '23505' ? 'Esse nome de utilizador já está em uso.' : 'Erro ao salvar: ' + (err.message || err));
+    } finally {
+      const b = $('epSaveBtn'); if (b) b.disabled = false;
+    }
+  }
+
+  // ---------- Sugestões para seguir ----------
+  async function loadSuggestions() {
     const box = $('suggestedUsersList');
-    let q = sb.from('profiles').select('id,username').neq('id', me()).order('created_at', { ascending: false }).limit(20);
+    let q = sb.from('profiles').select('id,username,avatar_url,bio').neq('id', me())
+      .order('created_at', { ascending: false }).limit(20);
     const ids = [...state.following];
     if (ids.length) q = q.not('id', 'in', `(${ids.join(',')})`);
     const { data, error } = await q;
@@ -464,17 +627,19 @@
     if (!data.length) { box.innerHTML = '<p class="muted-s">Não há novas sugestões no momento. Já segue todos os utilizadores!</p>'; return; }
     box.innerHTML = data.map((u) => `
       <div class="person-row suggest-row" data-id="${u.id}">
-        <div class="person-main"><div class="avatar">${esc((u.username || 'U').charAt(0).toUpperCase())}</div>
-          <div><b class="link-like" data-act="open-profile" data-id="${u.id}">@${esc(u.username)}</b><small>Membro da comunidade</small></div></div>
+        <div class="person-main">${avatarHtml(u)}
+          <div><b class="link-like" data-act="open-profile" data-id="${u.id}">@${esc(u.username)}</b>
+          <small>${esc((u.bio || '').slice(0, 60) || 'Membro da comunidade')}</small></div></div>
         <button class="primary" style="padding:6px 14px;font-size:12px" data-act="follow-toggle" data-id="${u.id}">Seguir</button>
       </div>`).join('');
   }
 
   async function openProfile(userId) {
     if (!UUID_RE.test(userId)) return;
-    const { data: profile } = await sb.from('profiles').select('id,username,role,is_pro').eq('id', userId).maybeSingle();
+    const { data: profile } = await sb.from('profiles').select('id,username,role,is_pro,bio,avatar_url').eq('id', userId).maybeSingle();
     if (!profile) { toast('Perfil não encontrado.'); return; }
     const counts = await followCounts(userId);
+    const { count: postsCount } = await sb.from('posts').select('*', { count: 'exact', head: true }).eq('user_id', userId);
     let action = '';
     if (userId !== me()) {
       const { data: req } = await sb.from('contact_requests').select('id,sender_id,status')
@@ -495,9 +660,11 @@
       }
     }
     openModal(`<div class="profile-modal">
+      <div style="display:flex;justify-content:center">${avatarHtml(profile, 'lg')}</div>
       <h2>@${esc(profile.username)}</h2>
+      ${profile.bio ? `<p class="ig-bio" style="margin:0">${linkify(profile.bio)}</p>` : ''}
       <p class="muted-s" style="margin:0">Cargo: <b>${esc((profile.role || 'user').toUpperCase())}</b> | Plano: <b>${profile.is_pro ? 'PRO' : 'Grátis'}</b></p>
-      <div class="counts"><div><b>${counts.followers}</b><br><small>Seguidores</small></div><div><b>${counts.following}</b><br><small>A seguir</small></div></div>
+      <div class="counts"><div><b>${postsCount ?? 0}</b><br><small>Publicações</small></div><div><b>${counts.followers}</b><br><small>Seguidores</small></div><div><b>${counts.following}</b><br><small>A seguir</small></div></div>
       ${action}</div>`);
   }
 
@@ -1074,6 +1241,14 @@
   const actions = {
     'open-profile': (el) => openProfile(el.dataset.id),
     'follow-toggle': (el) => toggleFollow(el.dataset.id),
+    'edit-profile': () => openEditProfile(),
+    'save-profile': () => saveProfile(),
+    'remove-avatar': () => clearAvatarChoice(),
+    'show-followers': () => showFollowList('followers'),
+    'show-following': () => showFollowList('following'),
+    'scroll-posts': () => $('profilePostsGrid').scrollIntoView({ behavior: 'smooth', block: 'start' }),
+    'view-my-post': (el) => openMyPost(el.dataset.id),
+    'delete-my-post': (el) => deleteMyPost(el.dataset.id),
     'toggle-comments': (el) => toggleComments(el.dataset.post),
     'submit-comment': (el) => submitComment(el.dataset.post),
     'delete-comment': (el) => deleteComment(el.dataset.id, el.dataset.post),
@@ -1111,6 +1286,9 @@
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && e.target.classList?.contains('comment-input')) {
         e.preventDefault(); submitComment(e.target.dataset.post);
+      }
+      if (e.key === 'Enter' && e.target.classList?.contains('ig-tile')) {
+        e.preventDefault(); openMyPost(e.target.dataset.id);
       }
     });
     document.addEventListener('input', (e) => {
