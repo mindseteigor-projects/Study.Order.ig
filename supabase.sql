@@ -154,6 +154,10 @@ alter table public.profiles add column if not exists updated_at timestamptz not 
 alter table public.profiles add column if not exists created_at timestamptz not null default now();
 alter table public.profiles add column if not exists role text not null default 'user';
 alter table public.profiles add column if not exists is_pro boolean not null default false;
+alter table public.profiles add column if not exists bio text default '';
+alter table public.profiles add column if not exists avatar_url text;
+alter table public.profiles drop constraint if exists profiles_bio_len;
+alter table public.profiles add constraint profiles_bio_len check (bio is null or char_length(bio) <= 160);
 alter table public.posts add column if not exists media_type text;
 alter table public.group_messages add column if not exists media_url text;
 alter table public.group_messages add column if not exists media_type text;
