@@ -1,213 +1,287 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Study Order — Rede Social de Estudos</title>
-  <link rel="stylesheet" href="style.css">
-  <!-- Biblioteca TOTP / Authy para validação 2FA real -->
-  <script src="https://cdn.jsdelivr.net/npm/otplib@12.0.1/browser.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Study Order — rede social de estudos: feed, grupos, mensagens, provas e tarefas em um só lugar.">
+<meta name="theme-color" content="#0d0d12">
+<title>Study Order — Rede Social de Estudos</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+<script src="config.js" defer></script>
+<script src="app.js" defer></script>
 </head>
 <body>
-  <!-- Tela de Autenticação / Registo -->
-  <div id="authScreen" class="auth-screen">
-    <div class="auth-card">
-      <div class="logo"><span>SO</span></div>
-      <div class="eyebrow">STUDY ORDER</div>
-      <h1>Conecte-se e estude em rede.</h1>
-      <p class="muted">Estudos, feed, grupos, IA e metas em um só lugar.</p>
-      
-      <div class="auth-tabs">
-        <button type="button" class="auth-tab active" data-auth="login">Entrar</button>
-        <button type="button" class="auth-tab" data-auth="signup">Criar conta</button>
-      </div>
+<noscript><p style="padding:20px">Ative o JavaScript para usar o Study Order.</p></noscript>
 
-      <form id="authForm" autocomplete="on" onsubmit="return false;">
-        <div id="usernameFieldContainer" class="hidden">
-          <label for="usernameInput">Nome de utilizador (Username)
-            <input id="usernameInput" name="username" type="text" autocomplete="username" placeholder="@seu_usuario">
-          </label>
-        </div>
-        <label for="email">E-mail
-          <input id="email" name="email" type="email" autocomplete="email" required placeholder="voce@email.com">
-        </label>
-        <label for="password">Senha
-          <input id="password" name="password" type="password" autocomplete="current-password" required minlength="6" placeholder="••••••••">
-        </label>
-        <button type="button" class="primary full" id="authSubmit">Entrar</button>
-      </form>
-      <p id="authMsg" class="form-msg"></p>
+<!-- Tela de Autenticação / Registo -->
+<div id="authScreen" class="auth-screen">
+  <div class="auth-card">
+    <div class="logo"><span>SO</span></div>
+    <div class="eyebrow">STUDY ORDER</div>
+    <h1>Conecte-se e estude em rede.</h1>
+    <p class="muted">Estudos, feed, grupos, IA e metas em um só lugar.</p>
+    <div class="auth-tabs">
+      <button type="button" class="auth-tab active" data-auth="login">Entrar</button>
+      <button type="button" class="auth-tab" data-auth="signup">Criar conta</button>
     </div>
-  </div>
-
-  <!-- Aplicação Principal -->
-  <div id="app" class="app hidden">
-    <aside class="sidebar">
-      <div class="brand"><div class="brand-mark">SO</div><div><b>Study</b><span>Order</span></div></div>
-      
-      <div class="side-label">NAVEGAÇÃO</div>
-      <button class="side-action nav-link active" data-target="feedView">💬 Feed & Posts</button>
-      <button class="side-action nav-link" data-target="dashboard">📚 Meus Estudos</button>
-      <button class="side-action nav-link" data-target="allTasksView">📅 Provas & Tarefas</button>
-      <button class="side-action nav-link" data-target="groupsView">👥 Grupos & Comunidades</button>
-      <button class="side-action nav-link" data-target="messagesView">💬 Mensagens (DMs)</button>
-      <button class="side-action nav-link" data-target="notificationsView">🔔 Notificações</button>
-      <button class="side-action nav-link" data-target="profileView">👤 Meu Perfil</button>
-      <button class="side-action nav-link" data-target="proView">⭐ Plano PRO (R$ 19,90)</button>
-      
-      <div class="side-label">MINHAS MATÉRIAS</div>
-      <button id="newSubjectBtn" class="new-subject">＋ Nova matéria</button>
-      <nav id="subjectNav"></nav>
-
-      <div class="side-bottom">
-        <button id="logoutBtn" class="side-action">↪ Sair</button>
+    <form id="authForm" autocomplete="on">
+      <div id="usernameFieldContainer" class="hidden">
+        <label for="usernameInput">Nome de utilizador (Username)
+          <input id="usernameInput" name="username" type="text" autocomplete="username" maxlength="30" placeholder="@seu_usuario">
+        </label>
       </div>
-    </aside>
-
-    <main class="main">
-      <header class="topbar">
-        <button id="mobileBtn" class="mobile-btn">☰</button>
-        <div class="breadcrumb" id="breadcrumb">Feed</div>
-        <div class="top-actions">
-          <button id="themeBtn" class="icon-btn">◐</button>
-          <span id="userEmail" class="user-email"></span>
-        </div>
-      </header>
-
-      <section class="content">
-        <!-- 1. FEED DE POSTS -->
-        <div id="feedView" class="view">
-          <div class="panel" style="margin-bottom: 20px;">
-            <h2>O que você está estudando hoje?</h2>
-            <textarea id="postContentInput" placeholder="Compartilhe uma dica, dúvida ou progresso..." style="width:100%; min-height:80px; background:#101017; color:white; border:1px solid #353542; border-radius:8px; padding:11px; margin-top:8px; outline:none;"></textarea>
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; gap:10px;">
-              <input type="text" id="postMediaInput" placeholder="Ou cole a URL de uma imagem..." style="flex:1; background:#101017; color:white; border:1px solid #353542; border-radius:8px; padding:8px; outline:none;">
-              <label class="upload-btn" style="background: #262626; color: #fff; padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 13px; white-space: nowrap;">📷 Enviar Imagem<input id="postFileInput" type="file" accept="image/*" hidden></label>
-              <button id="createPostBtn" class="primary">Publicar</button>
-            </div>
-          </div>
-          <div id="postsList"></div>
-        </div>
-
-        <!-- 2. DASHBOARD DE ESTUDOS -->
-        <div id="dashboard" class="view hidden">
-          <div class="hero">
-            <div>
-              <span class="eyebrow">SEU ESPAÇO DE ESTUDOS</span>
-              <h1>Study Order</h1>
-              <p>Tenha controle do que estudar, do que entregar e do que já foi concluído.</p>
-            </div>
-            <button class="primary" id="quickNoteBtn">＋ Nova anotação</button>
-          </div>
-          <div class="stats" id="stats"></div>
-          <div class="two-col">
-            <div class="panel">
-              <div class="panel-head"><h2>Próximas provas e tarefas</h2><button id="allTasksBtn" class="nav-link" data-target="allTasksView">Ver todas</button></div>
-              <div id="upcoming"></div>
-            </div>
-            <div class="panel">
-              <div class="panel-head"><h2>Matérias</h2><button id="addSubject2">＋ Adicionar</button></div>
-              <div id="subjectCards" class="subject-cards"></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 3. GRUPOS E COMUNIDADES -->
-        <div id="groupsView" class="view hidden">
-          <div class="page-title">
-            <div><span class="eyebrow">COMUNIDADES</span><h1>Grupos de Estudo</h1></div>
-            <button id="createGroupBtn" class="primary">＋ Criar Grupo</button>
-          </div>
-          <div id="groupsList"></div>
-        </div>
-
-        <!-- 4. MENSAGENS PRIVADAS (DMS) -->
-        <div id="messagesView" class="view hidden"></div>
-
-        <!-- 5. NOTIFICAÇÕES -->
-        <div id="notificationsView" class="view hidden">
-          <div class="page-title">
-            <div><span class="eyebrow">ATIVIDADE RECENTE</span><h1>Notificações</h1></div>
-          </div>
-          <div id="notificationsList" style="display: flex; flex-direction: column; gap: 10px;">
-            <p style="color: #737373;">A carregar notificações...</p>
-          </div>
-        </div>
-
-        <!-- 6. ABA DE PERFIL E SUGESTÕES ESTILO INSTAGRAM -->
-        <div id="profileView" class="view hidden">
-          <div class="panel" style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
-            <div>
-              <span class="eyebrow">A SUA CONTA</span>
-              <h1 id="profileUsernameDisplay" style="margin: 4px 0; color: var(--accent);">@utilizador</h1>
-              <p id="profileEmailDisplay" style="font-size: 13px; color: #a8a8a8; margin: 0;"></p>
-            </div>
-            <div style="display: flex; gap: 20px; background: #101017; padding: 12px 20px; border-radius: 10px; border: 1px solid #222;">
-              <div style="text-align: center;"><b id="statFollowersCount" style="font-size: 18px; color: #fff;">0</b><br><small style="color: #737373;">Seguidores</small></div>
-              <div style="text-align: center;"><b id="statFollowingCount" style="font-size: 18px; color: #fff;">0</b><br><small style="color: #737373;">A seguir</small></div>
-            </div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-head"><h2>✨ Sugestões para seguir</h2></div>
-            <p style="font-size: 13px; color: #a8a8a8; margin-bottom: 14px;">Descubra novos estudantes na comunidade para acompanhar o progresso.</p>
-            <div id="suggestedUsersList" style="display: flex; flex-direction: column; gap: 10px;">
-              <p style="color: #737373; font-size: 13px;">A carregar sugestões...</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- 7. PLANO PRO -->
-        <div id="proView" class="view hidden">
-          <div class="hero" style="background: linear-gradient(135deg, #2b2300, #15151c); border-color: var(--accent);">
-            <div>
-              <span class="eyebrow" style="color: var(--accent);">ASSINATURA PREMIUM</span>
-              <h1>Study Order PRO</h1>
-              <p>Desbloqueie Assistente de IA, cronograma adaptativo por dificuldade, sem anúncios, modo de sobreposição para foco e grupos privados.</p>
-            </div>
-            <button class="primary" id="subscribeProBtn">Assinar por R$ 19,90/mês</button>
-          </div>
-        </div>
-
-        <!-- 8. MATÉRIA DETALHADA -->
-        <div id="subjectView" class="view hidden">
-          <div class="page-title">
-            <div><span class="eyebrow">MATÉRIA</span><h1 id="subjectTitle">Matemática</h1></div>
-            <div class="page-actions"><button id="deleteSubjectBtn" class="danger">Excluir matéria</button><button id="newTaskBtn" class="primary">＋ Prova / tarefa</button></div>
-          </div>
-          <div class="subject-grid">
-            <div class="panel notes-panel"><div class="panel-head"><h2>Anotações e resumos</h2><button id="saveNoteBtn">Salvar</button></div><textarea id="notes" placeholder="Escreva suas anotações, fórmulas, resumos e lembretes..."></textarea></div>
-            <div class="panel"><div class="panel-head"><h2>Provas e tarefas</h2><button id="newTaskBtn2">＋</button></div><div id="tasks"></div></div>
-          </div>
-          <div class="two-col lower">
-            <div class="panel"><div class="panel-head"><h2>Links e vídeos</h2><button id="newLinkBtn">＋ Adicionar</button></div><div id="links"></div></div>
-            <div class="panel"><div class="panel-head"><h2>Arquivos e mídias</h2><label class="upload-btn">＋ Upload<input id="fileInput" type="file" hidden></label></div><div id="files"></div></div>
-          </div>
-        </div>
-
-        <!-- 9. TODAS AS TAREFAS / AGENDA -->
-        <div id="allTasksView" class="view hidden">
-          <div class="page-title">
-            <div><span class="eyebrow">AGENDA</span><h1>Provas, Lembretes e Tarefas</h1></div>
-            <button id="globalNewTaskBtn" class="primary">＋ Nova Tarefa</button>
-          </div>
-          <div id="globalTasksList"></div>
-        </div>
-
-        <div id="allNotesView" class="view hidden">
-          <div class="page-title"><div><span class="eyebrow">ANOTAÇÕES</span><h1>Todas as anotações</h1></div></div>
-          <div id="allNotes"></div>
-        </div>
-      </section>
-    </main>
+      <label for="email">E-mail
+        <input id="email" name="email" type="email" autocomplete="email" required placeholder="voce@email.com">
+      </label>
+      <label for="password">Senha
+        <input id="password" name="password" type="password" autocomplete="current-password" required minlength="6" placeholder="••••••••">
+      </label>
+      <button type="submit" class="primary full" id="authSubmit">Entrar</button>
+    </form>
+    <p id="authMsg" class="form-msg" role="alert"></p>
   </div>
+</div>
 
-  <div id="modal" class="modal-bg hidden"><div class="modal"><button class="close" id="closeModal">×</button><div id="modalBody"></div></div></div>
-  <div id="toast" class="toast"></div>
+<!-- Aplicação Principal -->
+<div id="app" class="app hidden">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand"><div class="brand-mark">SO</div><div><b>Study</b><span>Order</span></div></div>
+    <div class="side-label">NAVEGAÇÃO</div>
+    <button class="side-action nav-link active" data-target="feedView">💬 Feed &amp; Posts</button>
+    <button class="side-action nav-link" data-target="dashboard">📚 Meus Estudos</button>
+    <button class="side-action nav-link" data-target="allTasksView">📅 Provas &amp; Tarefas</button>
+    <button class="side-action nav-link" data-target="groupsView">👥 Grupos &amp; Comunidades</button>
+    <button class="side-action nav-link" data-target="messagesView">💬 Mensagens (DMs)</button>
+    <button class="side-action nav-link" data-target="notificationsView">🔔 Notificações</button>
+    <button class="side-action nav-link" data-target="profileView">👤 Meu Perfil</button>
+    <button class="side-action nav-link" data-target="proView">⭐ Plano PRO (R$ 19,90)</button>
+    <button id="adminNavBtn" class="side-action nav-link hidden" data-target="adminView">🛡️ Painel Admin</button>
 
-  <!-- Biblioteca oficial do Supabase v2 -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.js"></script>
-  <script src="app.js"></script>
+    <div class="side-label">MINHAS MATÉRIAS</div>
+    <button id="newSubjectBtn" class="new-subject">＋ Nova matéria</button>
+    <nav id="subjectNav"></nav>
+    <div class="side-bottom">
+      <button id="logoutBtn" class="side-action">↪ Sair</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <button id="mobileBtn" class="mobile-btn" aria-label="Abrir menu">☰</button>
+      <div class="breadcrumb" id="breadcrumb">💬 Feed &amp; Posts</div>
+      <div class="top-actions">
+        <button id="themeBtn" class="icon-btn" aria-label="Alternar tema">◐</button>
+        <span id="userEmail" class="user-email"></span>
+      </div>
+    </header>
+
+    <section class="content">
+      <div id="systemGlobalBanner"></div>
+
+      <!-- 1. FEED DE POSTS -->
+      <div id="feedView" class="view">
+        <div class="panel" style="margin-bottom: 20px;">
+          <h2>O que você está estudando hoje?</h2>
+          <textarea id="postContentInput" class="field mt" maxlength="2000" placeholder="Compartilhe uma dica, dúvida ou progresso..."></textarea>
+          <div class="composer-row">
+            <input type="text" id="postMediaInput" class="field" placeholder="Ou cole a URL de uma imagem...">
+            <label class="upload-chip">📷 Enviar Imagem<input id="postFileInput" type="file" accept="image/*" hidden></label>
+            <button id="createPostBtn" class="primary">Publicar</button>
+          </div>
+        </div>
+        <div id="postsList"></div>
+        <button id="loadMorePostsBtn" class="btn-secondary full hidden" data-act="load-more">Carregar mais publicações</button>
+      </div>
+
+      <!-- 2. DASHBOARD DE ESTUDOS -->
+      <div id="dashboard" class="view hidden">
+        <div class="hero">
+          <div>
+            <span class="eyebrow">SEU ESPAÇO DE ESTUDOS</span>
+            <h1>Study Order</h1>
+            <p>Tenha controle do que estudar, do que entregar e do que já foi concluído.</p>
+          </div>
+          <button class="primary" id="quickNoteBtn">＋ Nova anotação</button>
+        </div>
+        <div class="stats" id="stats"></div>
+        <div class="two-col">
+          <div class="panel">
+            <div class="panel-head"><h2>Próximas provas e tarefas</h2><button id="allTasksBtn" class="nav-link" data-target="allTasksView">Ver todas</button></div>
+            <div id="upcoming"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>Matérias</h2><button id="addSubject2">＋ Adicionar</button></div>
+            <div id="subjectCards" class="subject-cards"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. GRUPOS E COMUNIDADES -->
+      <div id="groupsView" class="view hidden">
+        <div class="page-title">
+          <div><span class="eyebrow">COMUNIDADES</span><h1>Grupos de Estudo</h1></div>
+          <button id="createGroupBtn" class="primary">＋ Criar Grupo</button>
+        </div>
+        <div id="groupsList"></div>
+        <div id="groupChat" class="panel chat-panel hidden">
+          <div class="chat-head split">
+            <div><h3 id="groupChatTitle"></h3><small class="green">● Aula Online / Chat ao vivo</small></div>
+            <button type="button" class="btn-secondary" data-act="back-groups">← Voltar aos Grupos</button>
+          </div>
+          <div id="chatMessages" class="chat-messages"></div>
+          <div class="chat-compose">
+            <label for="groupFileInput" class="upload-chip" title="Enviar foto ou videoaula">📁 Mídia</label>
+            <input type="file" id="groupFileInput" accept="image/*,video/mp4,video/webm" hidden>
+            <span id="groupFileReady" class="chip hidden">📎 mídia pronta</span>
+            <input type="text" id="chatInput" class="field" maxlength="2000" placeholder="Escreva uma mensagem para a turma...">
+            <button id="chatSendBtn" class="primary" type="button">Enviar</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. MENSAGENS PRIVADAS (DMS) -->
+      <div id="messagesView" class="view hidden">
+        <div class="page-title">
+          <div><span class="eyebrow">PRIVACIDADE E MENSAGENS</span><h1>Chat Privado &amp; Convites</h1></div>
+        </div>
+        <div class="dm-layout">
+          <div class="dm-side">
+            <div>
+              <h4 class="side-h accent">🔍 Pesquisar pessoas</h4>
+              <input id="userSearchInput" class="field" type="text" placeholder="Digitar @username..." autocomplete="off">
+              <div id="searchResultsContainer" class="stack"></div>
+            </div>
+            <hr>
+            <div>
+              <h4 class="side-h cyan">📩 Convites recebidos</h4>
+              <div id="pendingRequestsContainer" class="stack"></div>
+            </div>
+            <hr>
+            <div>
+              <h4 class="side-h green">👥 Meus contactos (liberados)</h4>
+              <div id="friendsListContainer" class="stack"></div>
+            </div>
+          </div>
+          <div class="dm-chat" id="dmChatArea">
+            <p id="dmPlaceholder" class="dm-placeholder">Selecione um contacto à esquerda para iniciar a conversa.</p>
+            <div id="dmChatBox" class="chat-box hidden">
+              <div class="chat-head"><h3 id="dmChatTitle"></h3></div>
+              <div id="dmMessagesList" class="chat-messages"></div>
+              <div class="chat-compose">
+                <input id="dmInput" class="field" type="text" maxlength="2000" placeholder="Escreva uma mensagem privada...">
+                <button id="dmSendBtn" class="primary" type="button">Enviar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. NOTIFICAÇÕES -->
+      <div id="notificationsView" class="view hidden">
+        <div class="page-title">
+          <div><span class="eyebrow">ATIVIDADE RECENTE</span><h1>Notificações</h1></div>
+        </div>
+        <div id="notificationsList" class="stack lg"></div>
+      </div>
+
+      <!-- 6. PERFIL E SUGESTÕES -->
+      <div id="profileView" class="view hidden">
+        <div class="panel profile-head">
+          <div>
+            <span class="eyebrow">A SUA CONTA</span>
+            <h1 id="profileUsernameDisplay" class="accent" style="margin: 4px 0;">@utilizador</h1>
+            <p id="profileEmailDisplay" class="muted-s" style="margin: 0;"></p>
+          </div>
+          <div class="follow-stats">
+            <div><b id="statFollowersCount">0</b><br><small>Seguidores</small></div>
+            <div><b id="statFollowingCount">0</b><br><small>A seguir</small></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>✨ Sugestões para seguir</h2></div>
+          <p class="muted-s" style="margin-bottom: 14px;">Descubra novos estudantes na comunidade para acompanhar o progresso.</p>
+          <div id="suggestedUsersList" class="stack lg"><p class="muted-s">A carregar sugestões...</p></div>
+        </div>
+      </div>
+
+      <!-- 7. PLANO PRO -->
+      <div id="proView" class="view hidden">
+        <div class="hero" style="background: linear-gradient(135deg, #2b2300, #15151c); border-color: var(--accent);">
+          <div>
+            <span class="eyebrow accent">ASSINATURA PREMIUM</span>
+            <h1>Study Order PRO</h1>
+            <p>Desbloqueie Assistente de IA, cronograma adaptativo por dificuldade, sem anúncios, modo de sobreposição para foco e grupos privados.</p>
+          </div>
+          <button class="primary" id="subscribeProBtn">Assinar por R$ 19,90/mês</button>
+        </div>
+      </div>
+
+      <!-- 8. MATÉRIA DETALHADA -->
+      <div id="subjectView" class="view hidden">
+        <div class="page-title">
+          <div><span class="eyebrow">MATÉRIA</span><h1 id="subjectTitle">Matéria</h1></div>
+          <div class="page-actions"><button id="deleteSubjectBtn" class="danger">Excluir matéria</button><button id="newTaskBtn" class="primary">＋ Prova / tarefa</button></div>
+        </div>
+        <div class="subject-grid">
+          <div class="panel notes-panel">
+            <div class="panel-head"><h2>Anotações e resumos</h2><button id="saveNoteBtn">Salvar</button></div>
+            <textarea id="notes" placeholder="Escreva suas anotações, fórmulas, resumos e lembretes..."></textarea>
+          </div>
+          <div class="panel"><div class="panel-head"><h2>Provas e tarefas</h2><button id="newTaskBtn2">＋</button></div><div id="tasks"></div></div>
+        </div>
+        <div class="two-col lower">
+          <div class="panel"><div class="panel-head"><h2>Links e vídeos</h2><button id="newLinkBtn">＋ Adicionar</button></div><div id="links"></div></div>
+          <div class="panel"><div class="panel-head"><h2>Arquivos e mídias</h2><label class="upload-btn">＋ Upload<input id="fileInput" type="file" hidden></label></div><div id="files"></div></div>
+        </div>
+      </div>
+
+      <!-- 9. TODAS AS TAREFAS / AGENDA -->
+      <div id="allTasksView" class="view hidden">
+        <div class="page-title">
+          <div><span class="eyebrow">AGENDA</span><h1>Provas, Lembretes e Tarefas</h1></div>
+          <button id="globalNewTaskBtn" class="primary">＋ Nova Tarefa</button>
+        </div>
+        <div id="globalTasksList"></div>
+      </div>
+
+      <!-- 10. PAINEL ADMIN (a proteção real está nas policies do Supabase) -->
+      <div id="adminView" class="view hidden">
+        <div class="page-title">
+          <div><span class="eyebrow red">ÁREA RESTRITA (ADMIN)</span><h1>Painel de Administração</h1></div>
+        </div>
+        <div class="panel admin-box">
+          <div class="panel-head"><h2>📢 Transmitir Comunicado Global (Banner)</h2></div>
+          <div class="admin-banner-row">
+            <input type="text" id="adminBannerMsg" class="field" maxlength="500" placeholder="Escreva um comunicado para todos os utilizadores...">
+            <select id="adminBannerType" class="field">
+              <option value="info">Informação (Azul)</option>
+              <option value="warning">Alerta (Amarelo)</option>
+              <option value="success">Sucesso (Verde)</option>
+            </select>
+            <button class="primary" data-act="admin-publish-banner">Publicar Banner</button>
+            <button class="btn-sm btn-red big" data-act="admin-clear-banner">Desativar Banners</button>
+          </div>
+        </div>
+        <div class="stats stats-auto">
+          <div class="panel center"><h3 class="accent big-n" id="statUsers">...</h3><p class="muted-s">Utilizadores Totais</p></div>
+          <div class="panel center"><h3 class="green big-n" id="statPro">...</h3><p class="muted-s">Membros PRO</p></div>
+          <div class="panel center"><h3 class="accent big-n" id="statPosts">...</h3><p class="muted-s">Posts Públicos</p></div>
+        </div>
+        <div class="panel" style="margin-bottom: 20px;">
+          <div class="panel-head"><h2>Gestão de Permissões e Planos PRO</h2></div>
+          <div id="adminUsersList" class="scroll-box"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Moderação de Publicações do Feed</h2></div>
+          <div id="adminPostsList" class="scroll-box"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="modal" class="modal-bg hidden"><div class="modal"><button class="close" id="closeModal" aria-label="Fechar">×</button><div id="modalBody"></div></div></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 </body>
 </html>
