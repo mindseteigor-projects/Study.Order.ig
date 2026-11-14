@@ -240,6 +240,38 @@ textarea.field { width: 100%; min-height: 80px; resize: vertical; }
 .share-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; background: var(--field); border: 1px solid var(--line2); border-radius: 6px; cursor: pointer; font-size: 13px; }
 .share-tag { font-size: 11px; color: var(--cyan); background: #1e3a8a; padding: 2px 8px; border-radius: 4px; }
 
+/* ---------- Perfil estilo Instagram ---------- */
+.avatar-img { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex-shrink: 0; display: block; background: var(--panel2); }
+.avatar.lg, .avatar-img.lg { width: 84px; height: 84px; font-size: 32px; }
+.avatar.xl, .avatar-img.xl { width: 120px; height: 120px; font-size: 44px; }
+.ig-header { display: flex; gap: 36px; align-items: center; margin-bottom: 8px; padding: 28px; }
+.ig-avatar-wrap { flex-shrink: 0; cursor: pointer; padding: 4px; }
+.ig-avatar-wrap .avatar, .ig-avatar-wrap .avatar-img { outline: 3px solid var(--accent); outline-offset: 3px; }
+.ig-info { flex: 1; min-width: 0; }
+.ig-top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.ig-handle { font-size: 22px; font-weight: 600; margin: 0; word-break: break-all; }
+.ig-stats { display: flex; gap: 28px; margin: 18px 0 14px; flex-wrap: wrap; }
+.ig-stat { background: none; border: 0; color: var(--text); font-size: 15px; padding: 0; cursor: pointer; }
+.ig-stat b { font-size: 16px; margin-right: 4px; }
+.ig-stat:hover { color: var(--accent); }
+.ig-bio { margin: 0 0 8px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.ig-tabs { display: flex; justify-content: center; border-top: 1px solid var(--border); margin-top: 20px; padding-top: 14px; font-size: 11px; letter-spacing: 1.5px; font-weight: 800; color: var(--muted); }
+.ig-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 12px 0 28px; }
+.ig-tile { position: relative; aspect-ratio: 1 / 1; overflow: hidden; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+.ig-tile img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .2s; }
+.ig-tile:hover img { transform: scale(1.04); }
+.ig-tile.text { display: flex; align-items: center; justify-content: center; padding: 12px; text-align: center; }
+.ig-tile.text p { margin: 0; font-size: 13px; line-height: 1.4; color: var(--text); word-break: break-word; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.ig-del { position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; border-radius: 50%; border: 0; background: rgba(0,0,0,.72); color: #fff; font-size: 15px; cursor: pointer; opacity: 0; transition: opacity .15s, background .15s; }
+.ig-tile:hover .ig-del, .ig-tile:focus .ig-del, .ig-tile:focus-within .ig-del { opacity: 1; }
+.ig-del:hover { background: #ef4444; }
+.ig-empty { grid-column: 1 / -1; }
+@media (hover: none) { .ig-del { opacity: 1; } }
+.post-modal-img { width: 100%; max-height: 60vh; object-fit: contain; border-radius: 8px; background: #000; display: block; }
+.ep-avatar { display: flex; align-items: center; gap: 18px; margin: 12px 0; }
+.ep-actions { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.ep-actions .upload-chip { margin: 0; }
+
 /* ---------- Tema claro ---------- */
 .light { --bg: #f5f5f6; --sidebar: #fff; --panel: #fff; --panel2: #f0f0f4; --text: #17171d; --muted: #666671; --border: #dddde3; --accent: #5b6b00; --field: #f8f8fa; --field-border: #d4d4dc; --line: #e2e2e8; --line2: #e5e5ea; --faint: #7a7a86; --chat-bg: #f1f1f4; --bubble-other: #e8e8ee; --modal-bg: #fff; }
 .light .topbar, .light .hero, .light .auth-card { background: #fff; }
@@ -267,4 +299,7 @@ textarea.field { width: 100%; min-height: 80px; resize: vertical; }
   .dm-side { max-height: 45vh; border-right: 0; border-bottom: 1px solid var(--line); }
   .dm-chat { min-height: 60vh; }
   .bubble { max-width: 88%; }
+  .ig-header { flex-direction: column; text-align: center; gap: 18px; padding: 20px; }
+  .ig-top, .ig-stats { justify-content: center; }
+  .avatar.xl, .avatar-img.xl { width: 96px; height: 96px; font-size: 36px; }
 }
