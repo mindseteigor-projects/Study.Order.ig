@@ -490,6 +490,16 @@
     renderMyPostsGrid();
   }
 
+  // Card de texto da grade (posts sem imagem e fallback de imagem quebrada).
+  // Todo conteúdo digitado pelo usuário passa por esc() (escape de HTML).
+  function gridTextCard(p, imageFailed = false) {
+    const text = (p.content || '').trim();
+    const body = text
+      ? `<p class="ig-text-body">${esc(text.slice(0, 220))}</p>`
+      : `<p class="ig-text-body ig-text-empty">${imageFailed ? 'Imagem indisponível' : 'Publicação sem texto'}</p>`;
+    return `<div class="ig-text"><span class="ig-text-icon" aria-hidden="true">${imageFailed ? '🖼' : '💬'}</span>${body}</div>`;
+  }
+
   function renderMyPostsGrid() {
     const grid = $('profilePostsGrid');
     const posts = state.myPosts || [];
@@ -499,12 +509,30 @@
     }
     grid.innerHTML = posts.map((p) => {
       const media = safeUrl(p.media_url || '');
-      const inner = media
-        ? `<img src="${esc(media)}" alt="Publicação" loading="lazy" decoding="async">`
-        : `<p>${esc((p.content || '').slice(0, 160))}</p>`;
-      return `<div class="ig-tile${media ? '' : ' text'}" data-act="view-my-post" data-id="${p.id}" tabindex="0">${inner}
-        <button type="button" class="ig-del" data-act="delete-my-post" data-id="${p.id}" title="Excluir publicação" aria-label="Excluir publicação">🗑</button></div>`;
+      const face = media
+        ? `<img class="ig-img" src="${esc(media)}" alt="" loading="lazy" decoding="async">`
+        : gridTextCard(p);
+      const caption = (p.content || '').trim();
+      return `<div class="ig-tile${media ? '' : ' text'}" data-act="view-my-post" data-id="${p.id}" tabindex="0">
+        <div class="ig-face">${face}</div>
+        <div class="ig-overlay">
+          ${caption ? `<p class="ig-caption">${esc(caption)}</p>` : ''}
+          <button type="button" class="ig-del" data-act="delete-my-post" data-id="${p.id}" aria-label="Excluir publicação">🗑 Excluir</button>
+        </div>
+      </div>`;
     }).join('');
+
+    // Se a imagem falhar, troca automaticamente pelo card de texto (equivale ao onerror).
+    grid.querySelectorAll('img.ig-img').forEach((img) => {
+      const fallback = () => {
+        const tile = img.closest('.ig-tile'); if (!tile) return;
+        const post = (state.myPosts || []).find((x) => x.id === tile.dataset.id); if (!post) return;
+        tile.classList.add('text');
+        tile.querySelector('.ig-face').innerHTML = gridTextCard(post, true);
+      };
+      img.addEventListener('error', fallback, { once: true });
+      if (img.complete && img.naturalWidth === 0) fallback(); // já tinha falhado antes do listener
+    });
   }
 
   function openMyPost(id) {
