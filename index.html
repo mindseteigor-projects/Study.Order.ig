@@ -6,18 +6,9 @@
 <meta name="description" content="Study Order — rede social de estudos: feed, grupos, mensagens, provas e tarefas em um só lugar.">
 <meta name="theme-color" content="#0d0d12">
 <meta name="referrer" content="strict-origin-when-cross-origin">
-<!--
-  CSP: bloqueia scripts de origens não listadas, iframes de terceiros e envio de formulários para fora.
-  - Troque SEU-PROJETO pelo ID do seu projeto Supabase.
-  - style-src mantém 'unsafe-inline' só porque há style="" no HTML/JS. Quando mover tudo para o style.css, remova.
-  - img-src/media-src aceitam https: porque o feed permite URL de imagem. Para blindar mais, restrinja a https://SEU-PROJETO.supabase.co.
-  - frame-ancestors NÃO funciona via <meta>: configure como header HTTP no hosting (junto com HSTS e X-Content-Type-Options).
--->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https://SEU-PROJETO.supabase.co wss://SEU-PROJETO.supabase.co; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <title>Study Order — Rede Social de Estudos</title>
 <link rel="stylesheet" href="style.css">
-<!-- Versão FIXA (nunca @2). Gere o hash SRI do arquivo e adicione integrity="sha384-..." crossorigin="anonymous":
-     curl -s URL | openssl dgst -sha384 -binary | openssl base64 -A -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js" defer></script>
 <script src="config.js" defer></script>
 <script src="app.js" defer></script>
@@ -25,7 +16,6 @@
 <body>
 <noscript><p style="padding:20px">Ative o JavaScript para usar o Study Order.</p></noscript>
 
-<!-- Tela de Autenticação / Registo -->
 <div id="authScreen" class="auth-screen">
   <div class="auth-card">
     <div class="logo"><span>SO</span></div>
@@ -46,7 +36,6 @@
         <input id="email" name="email" type="email" autocomplete="email" required maxlength="254" placeholder="voce@email.com">
       </label>
       <label for="password">Senha
-        <!-- no cadastro, o JS deve trocar autocomplete para "new-password" -->
         <input id="password" name="password" type="password" autocomplete="current-password" required minlength="10" maxlength="72" placeholder="••••••••••">
       </label>
       <button type="submit" class="primary full" id="authSubmit">Entrar</button>
@@ -55,7 +44,6 @@
   </div>
 </div>
 
-<!-- Aplicação Principal -->
 <div id="app" class="app hidden">
   <aside class="sidebar" id="sidebar">
     <div class="brand"><div class="brand-mark">SO</div><div><b>Study</b><span>Order</span></div></div>
@@ -68,7 +56,6 @@
     <button class="side-action nav-link" data-target="notificationsView">🔔 Notificações</button>
     <button class="side-action nav-link" data-target="profileView">👤 Meu Perfil</button>
     <button class="side-action nav-link" data-target="proView">⭐ Plano PRO (R$ 19,90)</button>
-    <!-- Só conveniência visual: o JS deve exibir após confirmar admin no servidor (RPC/consulta com RLS). A segurança real está no banco. -->
     <button id="adminNavBtn" class="side-action nav-link hidden" data-target="adminView">🛡️ Painel Admin</button>
 
     <div class="side-label">MINHAS MATÉRIAS</div>
@@ -92,7 +79,6 @@
     <section class="content">
       <div id="systemGlobalBanner"></div>
 
-      <!-- 1. FEED DE POSTS -->
       <div id="feedView" class="view">
         <div class="panel" style="margin-bottom: 20px;">
           <h2>O que você está estudando hoje?</h2>
@@ -107,7 +93,6 @@
         <button id="loadMorePostsBtn" class="btn-secondary full hidden" data-act="load-more">Carregar mais publicações</button>
       </div>
 
-      <!-- 2. DASHBOARD DE ESTUDOS -->
       <div id="dashboard" class="view hidden">
         <div class="hero">
           <div>
@@ -130,7 +115,6 @@
         </div>
       </div>
 
-      <!-- 3. GRUPOS E COMUNIDADES -->
       <div id="groupsView" class="view hidden">
         <div class="page-title">
           <div><span class="eyebrow">COMUNIDADES</span><h1>Grupos de Estudo</h1></div>
@@ -153,7 +137,6 @@
         </div>
       </div>
 
-      <!-- 4. MENSAGENS PRIVADAS (DMS) -->
       <div id="messagesView" class="view hidden">
         <div class="page-title">
           <div><span class="eyebrow">PRIVACIDADE E MENSAGENS</span><h1>Chat Privado &amp; Convites</h1></div>
@@ -190,7 +173,6 @@
         </div>
       </div>
 
-      <!-- 5. NOTIFICAÇÕES -->
       <div id="notificationsView" class="view hidden">
         <div class="page-title">
           <div><span class="eyebrow">ATIVIDADE RECENTE</span><h1>Notificações</h1></div>
@@ -198,7 +180,6 @@
         <div id="notificationsList" class="stack lg"></div>
       </div>
 
-      <!-- 6. PERFIL (ESTILO INSTAGRAM) -->
       <div id="profileView" class="view hidden">
         <div class="panel ig-header">
           <div id="profileAvatar" class="ig-avatar-wrap" data-act="edit-profile" title="Alterar foto"></div>
@@ -227,9 +208,6 @@
         </div>
       </div>
 
-      <!-- 7. PLANO PRO -->
-      <!-- O botão abaixo deve abrir um checkout de terceiros. O is_pro só pode ser ativado por webhook
-           verificado (Edge Function com service_role), nunca pelo cliente. -->
       <div id="proView" class="view hidden">
         <div class="hero" style="background: linear-gradient(135deg, #2b2300, #15151c); border-color: var(--accent);">
           <div>
@@ -241,7 +219,6 @@
         </div>
       </div>
 
-      <!-- 8. MATÉRIA DETALHADA -->
       <div id="subjectView" class="view hidden">
         <div class="page-title">
           <div><span class="eyebrow">MATÉRIA</span><h1 id="subjectTitle">Matéria</h1></div>
@@ -260,7 +237,6 @@
         </div>
       </div>
 
-      <!-- 9. TODAS AS TAREFAS / AGENDA -->
       <div id="allTasksView" class="view hidden">
         <div class="page-title">
           <div><span class="eyebrow">AGENDA</span><h1>Provas, Lembretes e Tarefas</h1></div>
@@ -269,12 +245,6 @@
         <div id="globalTasksList"></div>
       </div>
 
-      <!-- 10. PAINEL ADMIN
-           Ocultar esta área NÃO é segurança. Cada ação abaixo deve chamar uma RPC admin_* (ou policy admin)
-           que valida o administrador dentro do banco:
-             publicar/desativar banner -> policies ann_admin
-             permissões / PRO          -> rpc admin_set_role / admin_set_pro
-             moderar posts             -> rpc admin_delete_content('post', id) -->
       <div id="adminView" class="view hidden">
         <div class="page-title">
           <div><span class="eyebrow red">ÁREA RESTRITA (ADMIN)</span><h1>Painel de Administração</h1></div>
