@@ -5,9 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="description" content="Study Order — rede social de estudos: feed, grupos, mensagens, provas e tarefas em um só lugar.">
 <meta name="theme-color" content="#0d0d12">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<!--
+  CSP: bloqueia scripts de origens não listadas, iframes de terceiros e envio de formulários para fora.
+  - Troque SEU-PROJETO pelo ID do seu projeto Supabase.
+  - style-src mantém 'unsafe-inline' só porque há style="" no HTML/JS. Quando mover tudo para o style.css, remova.
+  - img-src/media-src aceitam https: porque o feed permite URL de imagem. Para blindar mais, restrinja a https://SEU-PROJETO.supabase.co.
+  - frame-ancestors NÃO funciona via <meta>: configure como header HTTP no hosting (junto com HSTS e X-Content-Type-Options).
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https://SEU-PROJETO.supabase.co wss://SEU-PROJETO.supabase.co; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <title>Study Order — Rede Social de Estudos</title>
 <link rel="stylesheet" href="style.css">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+<!-- Versão FIXA (nunca @2). Gere o hash SRI do arquivo e adicione integrity="sha384-..." crossorigin="anonymous":
+     curl -s URL | openssl dgst -sha384 -binary | openssl base64 -A -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js" defer></script>
 <script src="config.js" defer></script>
 <script src="app.js" defer></script>
 </head>
@@ -28,14 +39,15 @@
     <form id="authForm" autocomplete="on">
       <div id="usernameFieldContainer" class="hidden">
         <label for="usernameInput">Nome de utilizador (Username)
-          <input id="usernameInput" name="username" type="text" autocomplete="username" maxlength="30" placeholder="@seu_usuario">
+          <input id="usernameInput" name="username" type="text" autocomplete="username" minlength="3" maxlength="30" pattern="[A-Za-z0-9._]{3,30}" title="3 a 30 caracteres: letras, números, ponto e underline" placeholder="@seu_usuario">
         </label>
       </div>
       <label for="email">E-mail
-        <input id="email" name="email" type="email" autocomplete="email" required placeholder="voce@email.com">
+        <input id="email" name="email" type="email" autocomplete="email" required maxlength="254" placeholder="voce@email.com">
       </label>
       <label for="password">Senha
-        <input id="password" name="password" type="password" autocomplete="current-password" required minlength="6" placeholder="••••••••">
+        <!-- no cadastro, o JS deve trocar autocomplete para "new-password" -->
+        <input id="password" name="password" type="password" autocomplete="current-password" required minlength="10" maxlength="72" placeholder="••••••••••">
       </label>
       <button type="submit" class="primary full" id="authSubmit">Entrar</button>
     </form>
@@ -56,6 +68,7 @@
     <button class="side-action nav-link" data-target="notificationsView">🔔 Notificações</button>
     <button class="side-action nav-link" data-target="profileView">👤 Meu Perfil</button>
     <button class="side-action nav-link" data-target="proView">⭐ Plano PRO (R$ 19,90)</button>
+    <!-- Só conveniência visual: o JS deve exibir após confirmar admin no servidor (RPC/consulta com RLS). A segurança real está no banco. -->
     <button id="adminNavBtn" class="side-action nav-link hidden" data-target="adminView">🛡️ Painel Admin</button>
 
     <div class="side-label">MINHAS MATÉRIAS</div>
@@ -85,8 +98,8 @@
           <h2>O que você está estudando hoje?</h2>
           <textarea id="postContentInput" class="field mt" maxlength="2000" placeholder="Compartilhe uma dica, dúvida ou progresso..."></textarea>
           <div class="composer-row">
-            <input type="text" id="postMediaInput" class="field" placeholder="Ou cole a URL de uma imagem...">
-            <label class="upload-chip">📷 Enviar Imagem<input id="postFileInput" type="file" accept="image/*" hidden></label>
+            <input type="url" id="postMediaInput" class="field" maxlength="2048" pattern="https://.*" title="Use um link que comece com https://" placeholder="Ou cole a URL (https) de uma imagem...">
+            <label class="upload-chip">📷 Enviar Imagem<input id="postFileInput" type="file" accept="image/jpeg,image/png,image/webp" hidden></label>
             <button id="createPostBtn" class="primary">Publicar</button>
           </div>
         </div>
@@ -132,7 +145,7 @@
           <div id="chatMessages" class="chat-messages"></div>
           <div class="chat-compose">
             <label for="groupFileInput" class="upload-chip" title="Enviar foto ou videoaula">📁 Mídia</label>
-            <input type="file" id="groupFileInput" accept="image/*,video/mp4,video/webm" hidden>
+            <input type="file" id="groupFileInput" accept="image/jpeg,image/png,image/webp,video/mp4" hidden>
             <span id="groupFileReady" class="chip hidden">📎 mídia pronta</span>
             <input type="text" id="chatInput" class="field" maxlength="2000" placeholder="Escreva uma mensagem para a turma...">
             <button id="chatSendBtn" class="primary" type="button">Enviar</button>
@@ -149,7 +162,7 @@
           <div class="dm-side">
             <div>
               <h4 class="side-h accent">🔍 Pesquisar pessoas</h4>
-              <input id="userSearchInput" class="field" type="text" placeholder="Digitar @username..." autocomplete="off">
+              <input id="userSearchInput" class="field" type="text" maxlength="31" placeholder="Digitar @username..." autocomplete="off">
               <div id="searchResultsContainer" class="stack"></div>
             </div>
             <hr>
@@ -215,6 +228,8 @@
       </div>
 
       <!-- 7. PLANO PRO -->
+      <!-- O botão abaixo deve abrir um checkout de terceiros. O is_pro só pode ser ativado por webhook
+           verificado (Edge Function com service_role), nunca pelo cliente. -->
       <div id="proView" class="view hidden">
         <div class="hero" style="background: linear-gradient(135deg, #2b2300, #15151c); border-color: var(--accent);">
           <div>
@@ -235,13 +250,13 @@
         <div class="subject-grid">
           <div class="panel notes-panel">
             <div class="panel-head"><h2>Anotações e resumos</h2><button id="saveNoteBtn">Salvar</button></div>
-            <textarea id="notes" placeholder="Escreva suas anotações, fórmulas, resumos e lembretes..."></textarea>
+            <textarea id="notes" maxlength="200000" placeholder="Escreva suas anotações, fórmulas, resumos e lembretes..."></textarea>
           </div>
           <div class="panel"><div class="panel-head"><h2>Provas e tarefas</h2><button id="newTaskBtn2">＋</button></div><div id="tasks"></div></div>
         </div>
         <div class="two-col lower">
           <div class="panel"><div class="panel-head"><h2>Links e vídeos</h2><button id="newLinkBtn">＋ Adicionar</button></div><div id="links"></div></div>
-          <div class="panel"><div class="panel-head"><h2>Arquivos e mídias</h2><label class="upload-btn">＋ Upload<input id="fileInput" type="file" hidden></label></div><div id="files"></div></div>
+          <div class="panel"><div class="panel-head"><h2>Arquivos e mídias</h2><label class="upload-btn">＋ Upload<input id="fileInput" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,text/plain" hidden></label></div><div id="files"></div></div>
         </div>
       </div>
 
@@ -254,7 +269,12 @@
         <div id="globalTasksList"></div>
       </div>
 
-      <!-- 10. PAINEL ADMIN (a proteção real está nas policies do Supabase) -->
+      <!-- 10. PAINEL ADMIN
+           Ocultar esta área NÃO é segurança. Cada ação abaixo deve chamar uma RPC admin_* (ou policy admin)
+           que valida o administrador dentro do banco:
+             publicar/desativar banner -> policies ann_admin
+             permissões / PRO          -> rpc admin_set_role / admin_set_pro
+             moderar posts             -> rpc admin_delete_content('post', id) -->
       <div id="adminView" class="view hidden">
         <div class="page-title">
           <div><span class="eyebrow red">ÁREA RESTRITA (ADMIN)</span><h1>Painel de Administração</h1></div>
