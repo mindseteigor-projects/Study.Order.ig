@@ -402,7 +402,8 @@ declare t text;
 begin
   foreach t in array array[
     'posts','tasks','subject_contents','group_messages','direct_messages',
-    'contact_requests','notifications','global_announcements'
+    'contact_requests','notifications','global_announcements','followers',
+    'post_comments','subjects','groups','profiles'
   ] loop
     begin
       execute format('alter publication supabase_realtime add table public.%I', t);
