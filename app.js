@@ -211,9 +211,10 @@
     $('sidebar').classList.remove('open');
   }
   function navigate(target) {
-    dropChan('group'); dropChan('dm'); dropChan('subject');
+    dropChan('group'); dropChan('dm'); dropChan('subject'); dropProfileRealtime();
     state.groupId = null; state.dmUserId = null; state.subjectId = null;
     setActiveNav(target); showView(target);
+    if (target in badges) setBadge(target, 0);
     $('breadcrumb').textContent = TITLES[target] || '';
     const loaders = {
       feedView: () => loadPosts(true), dashboard: loadDashboard, allTasksView: loadAllTasksView,
@@ -251,7 +252,7 @@
     const m = location.hash.match(/^#post-(.+)$/);
     if (!m || !UUID_RE.test(m[1]) || !state.user) return;
     const id = m[1];
-    dropChan('group'); dropChan('dm'); dropChan('subject');
+    dropChan('group'); dropChan('dm'); dropChan('subject'); dropProfileRealtime();
     setActiveNav('feedView'); showView('feedView'); $('breadcrumb').textContent = TITLES.feedView;
     await loadPosts(true);
     if (!$('post-' + id)) {
@@ -380,6 +381,8 @@
       .select('id,user_id,content,profiles:user_id(username)')
       .eq('post_id', postId).order('created_at', { ascending: true }).limit(100);
     if (error) { box.innerHTML = '<small class="muted-s">Erro ao carregar comentários.</small>'; return; }
+    comments.forEach((c) => commentPost.set(c.id, postId));
+    if (comments.length < 100) setCommentCount(postId, comments.length);
     if (!comments.length) { box.innerHTML = '<small class="muted-s">Nenhum comentário ainda. Seja o primeiro!</small>'; return; }
     box.innerHTML = comments.map((c) => `
       <div class="comment">
@@ -392,12 +395,12 @@
     const input = $('comment-input-' + postId);
     const content = input?.value.trim(); if (!content) return;
     input.value = '';
-    const { error } = await sb.from('post_comments').insert([{ post_id: postId, user_id: me(), content }]);
+    const { data, error } = await sb.from('post_comments')
+      .insert([{ post_id: postId, user_id: me(), content }]).select('id,post_id').single();
     if (error) { toast('Erro ao enviar comentário: ' + error.message); input.value = content; return; }
     const owner = postCache.get(postId)?.user_id;
     if (owner) notify(owner, 'comment', 'comentou na tua publicação.');
-    const counter = $('comment-count-' + postId);
-    if (counter) counter.textContent = String((parseInt(counter.textContent, 10) || 0) + 1);
+    countComment(data);   // idempotente: se o evento realtime chegou primeiro, não conta duas vezes
     loadComments(postId);
   }
 
@@ -405,8 +408,7 @@
     if (!confirm('Deseja excluir este comentário?')) return;
     const { error } = await sb.from('post_comments').delete().eq('id', commentId).eq('user_id', me());
     if (error) { toast('Erro: ' + error.message); return; }
-    const counter = $('comment-count-' + postId);
-    if (counter) counter.textContent = String(Math.max(0, (parseInt(counter.textContent, 10) || 1) - 1));
+    uncountComment(commentId);
     loadComments(postId);
   }
 
@@ -477,17 +479,97 @@
     loadFollowCounts();
     loadMyPosts();
     loadSuggestions();
+    setupProfileRealtime();
+  }
+
+  let myPostsToken = 0;
+
+  function setPostsCount(n) {
+    state.myPostsTotal = Math.max(0, n);
+    const el = $('statPostsCount'); if (el) el.textContent = String(state.myPostsTotal);
   }
 
   async function loadMyPosts() {
     const grid = $('profilePostsGrid');
+    const token = ++myPostsToken;
     const { data, error, count } = await sb.from('posts')
       .select('id,content,media_url,created_at', { count: 'exact' })
       .eq('user_id', me()).order('created_at', { ascending: false }).limit(200);
+    if (token !== myPostsToken) return; // chegou uma chamada mais nova
     if (error) { grid.innerHTML = '<p class="empty ig-empty">Erro ao carregar as publicações.</p>'; return; }
     state.myPosts = data || [];
-    $('statPostsCount').textContent = count ?? state.myPosts.length;
+    setPostsCount(count ?? state.myPosts.length);
     renderMyPostsGrid();
+  }
+
+  // ---------- Realtime do perfil (WebSocket do Supabase) ----------
+  let profileSyncTimer = null;
+
+  // Aplica o evento direto na lista local: a grade muda na hora, sem ir ao banco.
+  // Retorna true só se algo realmente mudou (evita reagir a eventos repetidos ou de outros usuários).
+  function applyMyPostChange(payload) {
+    const posts = state.myPosts || [];
+    const type = payload.eventType;
+    if (type === 'DELETE') {
+      const id = payload.old?.id;
+      if (!id || !posts.some((p) => p.id === id)) return false;
+      state.myPosts = posts.filter((p) => p.id !== id);
+      postCache.delete(id);
+      $('post-' + id)?.remove();
+      setPostsCount((state.myPostsTotal ?? posts.length) - 1);
+      return true;
+    }
+    const row = payload.new;
+    if (!row?.id || row.user_id !== me()) return false;
+    const item = { id: row.id, content: row.content, media_url: row.media_url, created_at: row.created_at };
+    if (type === 'INSERT') {
+      if (posts.some((p) => p.id === row.id)) return false;
+      state.myPosts = [item, ...posts].sort((x, y) => new Date(y.created_at) - new Date(x.created_at));
+      setPostsCount((state.myPostsTotal ?? posts.length) + 1);
+      return true;
+    }
+    if (type === 'UPDATE') {
+      state.myPosts = posts.map((p) => (p.id === row.id ? item : p));
+      return true;
+    }
+    return false;
+  }
+
+  function onMyPostsChange(payload) {
+    if (!applyMyPostChange(payload)) return;
+    renderMyPostsGrid();                    // 1) interface atualizada instantaneamente
+    clearTimeout(profileSyncTimer);         // 2) reconcilia com o banco (posts + seguidores + seguindo)
+    profileSyncTimer = setTimeout(syncProfileStats, 300);
+  }
+
+  // Busca posts e contadores juntos, para tudo ficar coerente.
+  function syncProfileStats() {
+    if (!state.user || !isVisible('profileView')) return;
+    loadMyPosts();
+    loadFollowCounts();
+  }
+
+  function dropProfileRealtime() {
+    clearTimeout(profileSyncTimer);
+    dropChan('profile');
+  }
+
+  function setupProfileRealtime() {
+    const uid = me();
+    let joinedBefore = false;
+    // setChan remove o canal anterior (removeChannel) antes de guardar o novo: sem duplicar ouvintes.
+    setChan('profile', sb.channel('profile-' + uid)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts', filter: `user_id=eq.${uid}` }, onMyPostsChange)
+      // O Supabase não filtra eventos DELETE: este ouvinte recebe todos e o applyMyPostChange ignora os que não são seus.
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'posts' }, onMyPostsChange)
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          if (joinedBefore) { syncProfileStats(); scheduleFollowSync(); } // reconectou: recupera o que perdeu
+          joinedBefore = true;
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.warn('Realtime do perfil:', status);
+        }
+      }));
   }
 
   // Card de texto da grade (posts sem imagem e fallback de imagem quebrada).
@@ -552,7 +634,7 @@
     state.myPosts = (state.myPosts || []).filter((p) => p.id !== id);
     postCache.delete(id);
     $('post-' + id)?.remove();
-    $('statPostsCount').textContent = String(Math.max(0, (parseInt($('statPostsCount').textContent, 10) || 1) - 1));
+    setPostsCount((state.myPostsTotal ?? 1) - 1);
     renderMyPostsGrid();
     closeModal();
     toast('Publicação excluída.');
@@ -736,7 +818,7 @@
 
   function openSubject(id) {
     const sub = state.subjects.find((s) => s.id === id); if (!sub) return;
-    dropChan('group'); dropChan('dm');
+    dropChan('group'); dropChan('dm'); dropProfileRealtime();
     state.subjectId = id; setActiveNav(null); showView('subjectView');
     $('breadcrumb').textContent = '📓 ' + sub.name;
     $('subjectTitle').textContent = sub.name;
@@ -753,6 +835,7 @@
 
   async function saveNotes() {
     if (!state.subjectId) return;
+    state.lastSavedNotes = $('notes').value;
     const { error } = await sb.from('subjects').update({ notes: $('notes').value }).eq('id', state.subjectId).eq('user_id', me());
     toast(error ? 'Erro ao salvar: ' + error.message : 'Anotações salvas com sucesso!');
   }
@@ -1128,7 +1211,7 @@
 
   async function openDm(targetId, name) {
     if (!UUID_RE.test(targetId)) return;
-    state.dmUserId = targetId;
+    state.dmUserId = targetId; state.dmUserName = name;
     $('dmPlaceholder').classList.add('hidden'); $('dmChatBox').classList.remove('hidden');
     $('dmChatTitle').textContent = '💬 Conversa com @' + name;
     const box = $('dmMessagesList');
@@ -1238,29 +1321,260 @@
   }
 
   // ============================================================
-  // REALTIME PERSISTENTE
+  // REALTIME DA PLATAFORMA INTEIRA (3 canais persistentes + 1 do perfil)
+  // O Supabase só entrega eventos que o RLS permite ao usuário.
   // ============================================================
+  const badges = { notificationsView: 0, groupsView: 0, messagesView: 0 };
+  const commentPost = new Map();   // id do comentário -> id do post (contagem exata, sem duplicar)
+  const timers = {};
+  const rtStatus = {};
+  let rtWasDown = false;
+  let hiddenAt = 0;
+  let realtimeBound = false;
+
+  function debounce(key, fn, ms = 300) { clearTimeout(timers[key]); timers[key] = setTimeout(fn, ms); }
+
+  // ---- selos de "não lido" na barra lateral e no título da aba ----
+  function setBadge(view, n) {
+    badges[view] = n;
+    const btn = document.querySelector(`.nav-link[data-target="${view}"]`);
+    if (btn) {
+      let b = btn.querySelector('.nav-badge');
+      if (n > 0) {
+        if (!b) { b = document.createElement('span'); b.className = 'nav-badge'; btn.appendChild(b); }
+        b.textContent = n > 99 ? '99+' : String(n);
+      } else if (b) b.remove();
+    }
+    const total = Object.values(badges).reduce((s, x) => s + x, 0);
+    document.title = (total ? `(${total}) ` : '') + 'Study Order — Rede Social de Estudos';
+  }
+  function bumpBadge(view) { if (!isVisible(view)) setBadge(view, badges[view] + 1); }
+
+  // ---- indicador de conexão + ressincronização ao reconectar ----
+  function trackStatus(key) {
+    return (status) => {
+      rtStatus[key] = status;
+      const ok = Object.values(rtStatus).every((s) => s === 'SUBSCRIBED');
+      const dot = $('rtDot');
+      if (dot) { dot.classList.toggle('off', !ok); dot.title = ok ? 'Tempo real conectado' : 'Reconectando...'; }
+      if (status === 'SUBSCRIBED') { if (rtWasDown) { rtWasDown = false; resyncVisible(); } }
+      else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') rtWasDown = true;
+    };
+  }
+
+  // Recarrega o que está na tela (usado ao reconectar ou ao voltar para a aba depois de um tempo).
+  function resyncVisible() {
+    if (!state.user) return;
+    loadGlobalBanner(); loadSubjects(); loadTasks();
+    loadFollowing().then(refreshFollowButtons);
+    const cur = [...document.querySelectorAll('.view')].find((v) => !v.classList.contains('hidden'))?.id;
+    if (cur === 'feedView') loadPosts(true);
+    else if (cur === 'dashboard') loadDashboardStats();
+    else if (cur === 'allTasksView') loadAllTasksView();
+    else if (cur === 'notificationsView') loadNotifications();
+    else if (cur === 'profileView') loadProfileView();
+    else if (cur === 'messagesView') { refreshDmSidebar(); if (state.dmUserId) openDm(state.dmUserId, state.dmUserName || ''); }
+    else if (cur === 'groupsView') { if (state.groupId) enterGroup(state.groupId); else loadGroups(); }
+    else if (cur === 'subjectView' && state.subjectId) openSubject(state.subjectId);
+    else if (cur === 'adminView') refreshAdmin();
+  }
+
+  function refreshAdmin() {
+    if (state.profile?.role !== 'admin') return;
+    loadAdminStats(); loadAdminUsers(); loadAdminPosts();
+  }
+  function touchAdmin() { if (isVisible('adminView')) debounce('admin', refreshAdmin, 500); }
+
+  // ---- feed ----
+  function onPostUpdated(row) {
+    const card = $('post-' + row.id); if (!card) return;
+    postCache.set(row.id, { ...(postCache.get(row.id) || {}), content: row.content || '', media_url: row.media_url || '' });
+    const body = card.querySelector('.post-body');
+    body.innerHTML = linkify(row.content);
+    const media = safeUrl(row.media_url || '');
+    let box = card.querySelector('.post-media');
+    if (!media) { box?.remove(); return; }
+    if (!box) { box = document.createElement('div'); box.className = 'post-media'; body.after(box); }
+    box.innerHTML = `<a href="${esc(media)}" target="_blank" rel="noopener noreferrer"><img src="${esc(media)}" alt="Imagem da publicação" loading="lazy" decoding="async"></a>`;
+  }
+
+  function setCommentCount(postId, n) {
+    const el = $('comment-count-' + postId);
+    if (el) el.textContent = String(Math.max(0, n));
+  }
+  function countComment(c) {            // +1, idempotente
+    if (!c?.id || commentPost.has(c.id)) return;
+    commentPost.set(c.id, c.post_id);
+    const el = $('comment-count-' + c.post_id);
+    if (el) el.textContent = String((parseInt(el.textContent, 10) || 0) + 1);
+  }
+  function uncountComment(id) {         // -1, idempotente (o DELETE só traz o id do comentário)
+    const postId = commentPost.get(id); if (!postId) return null;
+    commentPost.delete(id);
+    const el = $('comment-count-' + postId);
+    if (el) el.textContent = String(Math.max(0, (parseInt(el.textContent, 10) || 1) - 1));
+    return postId;
+  }
+  function onCommentInsert(c) {
+    countComment(c);
+    const sec = $('comments-section-' + c.post_id);
+    if (sec && !sec.classList.contains('hidden')) loadComments(c.post_id);
+  }
+  function onCommentDelete(old) {
+    const postId = uncountComment(old?.id);
+    const sec = postId && $('comments-section-' + postId);
+    if (sec && !sec.classList.contains('hidden')) loadComments(postId);
+  }
+
+  // ---- perfis (nome, foto, bio, cargo e plano de qualquer usuário) ----
+  function onProfileChange(payload) {
+    const row = payload.new; if (!row?.id) return;
+    if (payload.eventType === 'INSERT') {
+      if (isVisible('profileView')) debounce('sugg', loadSuggestions, 600);
+      touchAdmin(); return;
+    }
+    nameCache.set(row.id, row.username);
+    document.querySelectorAll(`.post-author[data-id="${row.id}"]`).forEach((el) => { el.textContent = '@' + row.username; });
+    if (row.id === me()) {
+      const roleChanged = state.profile?.role !== row.role;
+      const proChanged = state.profile?.is_pro !== row.is_pro;
+      state.profile = { ...state.profile, ...row };
+      $('adminNavBtn').classList.toggle('hidden', row.role !== 'admin');
+      if (isVisible('profileView')) renderProfileHeader();
+      if (roleChanged) toast(row.role === 'admin' ? '🛡️ Você agora é administrador.' : 'Seu cargo foi alterado.');
+      if (roleChanged && row.role !== 'admin' && isVisible('adminView')) navigate('feedView');
+      if (proChanged) toast(row.is_pro ? '⭐ Seu plano PRO foi ativado!' : 'Seu plano PRO foi removido.');
+    } else if (isVisible('profileView')) debounce('sugg', loadSuggestions, 600);
+    touchAdmin();
+  }
+
+  // ---- seguidores (botões do feed, contadores e sugestões) ----
+  function refreshFollowButtons() {
+    document.querySelectorAll('.follow-btn').forEach((b) => {
+      const f = state.following.has(b.dataset.id);
+      b.textContent = f ? 'A seguir' : 'Seguir';
+      b.classList.toggle('following', f);
+    });
+  }
+  function scheduleFollowSync() {
+    debounce('follow', async () => {
+      if (!state.user) return;
+      const before = state.following.size;
+      await loadFollowing();
+      refreshFollowButtons();
+      if (isVisible('profileView')) {
+        loadFollowCounts();
+        if (state.following.size !== before) loadSuggestions();
+      }
+    });
+  }
+
+  // ---- matérias ----
+  function onSubjectChange(payload) {
+    const type = payload.eventType;
+    if (type === 'DELETE') {
+      const id = payload.old?.id;
+      if (!id || !state.subjects.some((s) => s.id === id)) return;
+      if (state.subjectId === id) {
+        state.subjectId = null;
+        toast('Esta matéria foi removida em outro aparelho.');
+        loadSubjects().then(() => navigate('dashboard'));
+        return;
+      }
+    } else if (type === 'UPDATE' && payload.new?.id === state.subjectId) {
+      const row = payload.new;
+      $('subjectTitle').textContent = row.name;
+      $('breadcrumb').textContent = '📓 ' + row.name;
+      const notes = $('notes');
+      if (row.notes !== state.lastSavedNotes && notes.value !== (row.notes || '')) {
+        if (document.activeElement === notes) toast('As anotações foram alteradas em outro aparelho.');
+        else notes.value = row.notes || '';
+      }
+    }
+    debounce('subjects', async () => { await loadSubjects(); if (isVisible('dashboard')) loadDashboardStats(); });
+  }
+
+  // ---- grupos e mensagens ----
+  function onGroupChange(payload) {
+    if (payload.eventType === 'DELETE') {
+      const id = payload.old?.id;
+      state.groups = state.groups.filter((g) => g.id !== id);
+      if (id && id === state.groupId) { toast('Este grupo foi removido.'); loadGroups(); return; }
+    } else if (payload.new?.id) {
+      const row = payload.new, i = state.groups.findIndex((g) => g.id === row.id);
+      if (i >= 0) state.groups[i] = { id: row.id, name: row.name }; else state.groups.unshift({ id: row.id, name: row.name });
+      if (row.id === state.groupId) $('groupChatTitle').textContent = '👥 ' + row.name;
+    }
+    if (isVisible('groupsView') && !state.groupId) debounce('groups', loadGroups);
+  }
+
+  function onGroupMessageAnywhere(m) {
+    if (m.user_id === me()) return;
+    if (state.groupId === m.group_id && isVisible('groupsView')) return; // o chat aberto já recebe pelo próprio canal
+    const g = state.groups.find((x) => x.id === m.group_id);
+    bumpBadge('groupsView');
+    toast(`💬 Nova mensagem${g ? ' em ' + g.name : ' no grupo'}`);
+  }
+
+  async function onIncomingDm(m) {
+    if (m.receiver_id !== me()) return;
+    if (state.dmUserId === m.sender_id && isVisible('messagesView')) return;
+    bumpBadge('messagesView');
+    toast(`✉️ Nova mensagem de @${await usernameOf(m.sender_id)}`);
+  }
+
+  function onNewNotification() {
+    bumpBadge('notificationsView');
+    toast('🔔 Nova notificação');
+    if (isVisible('notificationsView')) loadNotifications();
+  }
+
   function setupRealtime() {
     const uid = me();
-    setChan('feed', sb.channel('feed')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, (p) => onNewPost(p.new))
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'posts' }, (p) => $('post-' + p.old.id)?.remove())
-      .subscribe());
-    setChan('tasks', sb.channel('tasks-' + uid)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks', filter: `user_id=eq.${uid}` }, refreshTasks)
-      .subscribe());
+    const pc = (event, table, extra = {}) => ({ event, schema: 'public', table, ...extra });
     const onReq = () => { if (isVisible('messagesView')) refreshDmSidebar(); };
-    setChan('requests', sb.channel('requests-' + uid)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'contact_requests', filter: `receiver_id=eq.${uid}` }, onReq)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'contact_requests', filter: `sender_id=eq.${uid}` }, onReq)
-      .subscribe());
-    setChan('notifs', sb.channel('notifs-' + uid)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${uid}` }, () => {
-        toast('🔔 Nova notificação'); if (isVisible('notificationsView')) loadNotifications();
-      }).subscribe());
-    setChan('banner', sb.channel('banner')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'global_announcements' }, loadGlobalBanner)
-      .subscribe());
+
+    // Canal 1: feed, comentários, perfis e banner
+    setChan('rt-feed', sb.channel('rt-feed-' + uid)
+      .on('postgres_changes', pc('INSERT', 'posts'), (p) => { onNewPost(p.new); touchAdmin(); })
+      .on('postgres_changes', pc('UPDATE', 'posts'), (p) => onPostUpdated(p.new))
+      .on('postgres_changes', pc('DELETE', 'posts'), (p) => { $('post-' + p.old.id)?.remove(); touchAdmin(); })
+      .on('postgres_changes', pc('INSERT', 'post_comments'), (p) => onCommentInsert(p.new))
+      .on('postgres_changes', pc('DELETE', 'post_comments'), (p) => onCommentDelete(p.old))
+      .on('postgres_changes', pc('*', 'profiles'), onProfileChange)
+      .on('postgres_changes', pc('*', 'global_announcements'), () => loadGlobalBanner())
+      .subscribe(trackStatus('rt-feed')));
+
+    // Canal 2: estudos (tarefas e matérias). DELETE não aceita filtro, por isso há ouvintes sem filtro.
+    setChan('rt-study', sb.channel('rt-study-' + uid)
+      .on('postgres_changes', pc('*', 'tasks', { filter: `user_id=eq.${uid}` }), () => debounce('tasks', refreshTasks, 150))
+      .on('postgres_changes', pc('DELETE', 'tasks'), () => debounce('tasks', refreshTasks, 400))
+      .on('postgres_changes', pc('*', 'subjects', { filter: `user_id=eq.${uid}` }), onSubjectChange)
+      .on('postgres_changes', pc('DELETE', 'subjects'), onSubjectChange)
+      .subscribe(trackStatus('rt-study')));
+
+    // Canal 3: social (seguidores, convites, notificações, mensagens e grupos)
+    setChan('rt-social', sb.channel('rt-social-' + uid)
+      .on('postgres_changes', pc('INSERT', 'followers', { filter: `following_id=eq.${uid}` }), scheduleFollowSync)
+      .on('postgres_changes', pc('INSERT', 'followers', { filter: `follower_id=eq.${uid}` }), scheduleFollowSync)
+      .on('postgres_changes', pc('DELETE', 'followers'), scheduleFollowSync)
+      .on('postgres_changes', pc('*', 'contact_requests', { filter: `receiver_id=eq.${uid}` }), onReq)
+      .on('postgres_changes', pc('*', 'contact_requests', { filter: `sender_id=eq.${uid}` }), onReq)
+      .on('postgres_changes', pc('DELETE', 'contact_requests'), onReq)
+      .on('postgres_changes', pc('INSERT', 'notifications', { filter: `user_id=eq.${uid}` }), onNewNotification)
+      .on('postgres_changes', pc('INSERT', 'direct_messages', { filter: `receiver_id=eq.${uid}` }), (p) => onIncomingDm(p.new))
+      .on('postgres_changes', pc('INSERT', 'group_messages'), (p) => onGroupMessageAnywhere(p.new))
+      .on('postgres_changes', pc('*', 'groups'), onGroupChange)
+      .subscribe(trackStatus('rt-social')));
+
+    if (realtimeBound) return;
+    realtimeBound = true;
+    // Abas dormindo perdem o WebSocket: ao voltar depois de 30 s (ou ao reconectar a internet), ressincroniza.
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) hiddenAt = Date.now();
+      else if (hiddenAt && Date.now() - hiddenAt > 30000) { hiddenAt = 0; resyncVisible(); }
+    });
+    window.addEventListener('online', resyncVisible);
   }
 
   // ============================================================
@@ -1364,7 +1678,7 @@
     bindControls();
     loadGlobalBanner();
     loadFollowing().then(() => { loadPosts(true).then(gotoPostFromHash); });
-    loadSubjects(); loadTasks();
+    loadSubjects(); loadTasks(); loadGroups();
     setupRealtime();
   }
 
